@@ -47,7 +47,6 @@ The generated data is stored in the `synthetic_data/` directory and includes:
 - `idx_split.csv` file with 10 different training/testing splits for reproducibility
 - `generate_synthetic_data.ipynb` notebook for generating the synthetic data for different causal configuration and survival scenarios
 
-The data is also available at Harvard Dataverse: [SurvHTE-Bench](https://doi.org/10.7910/DVN/VLJO28)
 
 ### Real Data
 
