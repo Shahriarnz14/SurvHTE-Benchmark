@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+import os
+import math
 from scipy.stats import multivariate_normal
 from scipy.stats import beta, bernoulli
 
@@ -229,62 +231,172 @@ class SyntheticDataGenerator:
                 'metadata': self._meta}
 
 
-def load_synthetic_data(data_dir='./data/synthetic/'):
-    '''
-    example call: 
-        experiment_setups = load_synthetic_data('./')
-    '''
+def load_data(dataset_type='synthetic', data_dir='./data/synthetic/'):
     experiment_setups = {}
-    for causal_config in ["RCT-50",
-                          "RCT-5",
-                          "OBS-CPS",
-                          "OBS-UConf",
-                          "OBS-NoPos",
-                          "OBS-CPS-IC",
-                          "OBS-UConf-IC",
-                          "OBS-NoPos-IC"]:
-        data_path = os.path.join(data_dir, f'{causal_config}.h5')
-        scenario_dict = {}
-        for survival_scenario in ['A', 'B', 'C', 'D', 'E']:
-            dataset_key = f'Scenario_{survival_scenario}/data'
-            with pd.HDFStore(data_path, mode='r') as store:
-                df = store[dataset_key]
-                metadata = store.get_storer(dataset_key).attrs.metadata
-            summary_characteristics = {
-                # rates
-                'censoring_rate': 1-df['event'].mean(),
-                'treatment_rate': df['W'].mean(),
+    if dataset_type == 'synthetic':
+        idx_split_file_path = os.path.join(data_dir, 'idx_split.csv')
+        experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
+        for causal_config in ["RCT-50",
+                            "RCT-5",
+                            "OBS-CPS",
+                            "OBS-UConf",
+                            "OBS-NoPos",
+                            "OBS-CPS-IC",
+                            "OBS-UConf-IC",
+                            "OBS-NoPos-IC"]:
+            data_path = os.path.join(data_dir, f'{causal_config}.h5')
+            scenario_dict = {}
+            for survival_scenario in ['A', 'B', 'C', 'D', 'E']:
+                dataset_key = f'Scenario_{survival_scenario}/data'
+                with pd.HDFStore(data_path, mode='r') as store:
+                    df = store[dataset_key]
+                    metadata = store.get_storer(dataset_key).attrs.metadata
+                summary_characteristics = {
+                    # rates
+                    'censoring_rate': 1-df['event'].mean(),
+                    'treatment_rate': df['W'].mean(),
 
-                # event times
-                'event_time_min': df['T'].min(),
-                'event_time_25pct': df['T'].quantile(0.25),
-                'event_time_median': df['T'].median(),
-                'event_time_75pct': df['T'].quantile(0.75),
-                'event_time_max': df['T'].max(),
-                'event_time_mean': df['T'].mean(),
-                'event_time_std': df['T'].std(),
+                    # event times
+                    'event_time_min': df['T'].min(),
+                    'event_time_25pct': df['T'].quantile(0.25),
+                    'event_time_median': df['T'].median(),
+                    'event_time_75pct': df['T'].quantile(0.75),
+                    'event_time_max': df['T'].max(),
+                    'event_time_mean': df['T'].mean(),
+                    'event_time_std': df['T'].std(),
 
-                # censoring times
-                'censoring_time_min': df['C'].min(),
-                'censoring_time_median': df['C'].median(),
-                'censoring_time_max': df['C'].max(),
-                'censoring_time_mean': df['C'].mean(),
-                'censoring_time_std': df['C'].std(),
+                    # censoring times
+                    'censoring_time_min': df['C'].min(),
+                    'censoring_time_median': df['C'].median(),
+                    'censoring_time_max': df['C'].max(),
+                    'censoring_time_mean': df['C'].mean(),
+                    'censoring_time_std': df['C'].std(),
 
-                # treatment effects
-                'ate': (df['T1']-df['T0']).mean(),
-                'cate_min': (df['T1']-df['T0']).min(),
-                'cate_median': (df['T1']-df['T0']).median(),
-                'cate_max': (df['T1']-df['T0']).max()
-                }
-            result = {"dataset": df, 
-                      "summary": summary_characteristics, 
-                      "metadata": metadata}
-            scenario_dict[f"Scenario_{survival_scenario}"] = result
+                    # treatment effects
+                    'ate': (df['T1']-df['T0']).mean(),
+                    'cate_min': (df['T1']-df['T0']).min(),
+                    'cate_median': (df['T1']-df['T0']).median(),
+                    'cate_max': (df['T1']-df['T0']).max()
+                    }
+                result = {"dataset": df, 
+                        "summary": summary_characteristics, 
+                        "metadata": metadata}
+                scenario_dict[f"Scenario_{survival_scenario}"] = result
+            
+            experiment_setups[causal_config] = scenario_dict
         
-        experiment_setups[causal_config] = scenario_dict
+    else:
+        raise NotImplementedError
     
-    return experiment_setups
+    return experiment_setups, experiment_repeat_setups
+
+
+
+def prepare_data_split(dataset_df, experiment_repeat_setups, 
+                       num_repeats=10, 
+                       dataset_type='synthetic',
+                       cate_true_col=None,
+                       train_size=5000,
+                       val_size=2500,
+                       test_size=2500):
+    """
+    Returns dictionary:
+        split_results[repeat_id] = {
+            "train": (X_train, W_train, Y_train, cate_train_true),
+            "val":   (X_val,   W_val,   Y_val,   cate_val_true),
+            "test":  (X_test,  W_test,  Y_test,  cate_test_true)
+        }
+    """
+    # --- train/val/test size ---
+    if all(0 <= x <= 1 for x in (train_size, val_size, test_size)):
+        assert math.isclose(train_size + val_size + test_size, 1.0,
+                            rel_tol=1e-9, abs_tol=1e-9), \
+            f"Sizes must sum to 1. Got {train_size + val_size + test_size}"
+        length = len(experiment_repeat_setups)
+        train_size = int(length * train_size)
+        val_size = int(length * val_size)
+        test_size = length - train_size - val_size
+    else:
+        # assume absolute counts were passed in
+        total = train_size + val_size + test_size
+        assert total <= len(dataset_df), \
+            f"Total {total} exceeds dataset size {len(dataset_df)}"
+    
+    # --- dataset-specific schema ---
+    if dataset_type == 'synthetic':
+        X_cols = [c for c in dataset_df.columns if c.startswith("X") and c[1:].isdigit()]
+        W_col = 'W'
+        y_cols = ['observed_time', 'event']
+    elif dataset_type in ('actg', 'actgL'):
+        X_bi_cols = ['gender', 'race', 'hemo', 'homo', 'drugs', 'str2', 'symptom']
+        X_cont_cols = ['age', 'wtkg',  'karnof', 'cd40', 'cd80']
+        U = ['z30']
+        X_cols = X_bi_cols + X_cont_cols
+        y_cols = ['observed_time_month', 'effect_non_censor']
+        W_col = 'trt'
+        cate_true_col = 'cate_base'
+    elif dataset_type == 'mimicSyn':
+        X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
+                    'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
+                    'Urea nitrogen', 'Hematocrit', 'Hemoglobin', 'MCH', 'MCHC', 'MCV',
+                    'Platelet count', 'RDW', 'Red blood cells', 'White blood cells',
+                    'Admission age', 'Sex:Male', 'Race:Black', 'Race:Hispanic',
+                    'Race:Other', 'Race:White', 'Insurance:Medicare', 'Insurance:Other',
+                    'Marital status:Married', 'Marital status:Single',
+                    'Marital status:Widowed', 'Direct emergency:Yes', 'Night admission:Yes',
+                    'Previous admission this month:Yes', 'Admissions number:2',
+                    'Admissions number:3+']
+        W_col = 'W'
+        y_cols = ['observed_time', 'event']
+        cate_true_col = 'true_cate'
+    elif dataset_type == 'actgSyn':
+        X_cols = ['age', 'wtkg', 'hemo', 'homo', 'drugs', 'karnof', 'oprior', 'z30', 'zprior', 'preanti', 
+                'race', 'gender', 'str2', 'strat', 'symptom', 'treat', 'offtrt', 
+                'cd40', 'cd420', 'cd496', 'r', 'cd80', 'cd820']
+        W_col = 'W'
+        y_cols = ['observed_time', 'event']
+        cate_true_col = 'true_cate'
+    elif dataset_type == 'twin':
+        X_binary_cols = ['anemia', 'cardiac', 'lung', 'diabetes', 'herpes', 'hydra',
+                        'hemo', 'chyper', 'phyper', 'eclamp', 'incervix', 'pre4000', 'preterm',
+                        'renal', 'rh', 'uterine', 'othermr', 
+                        'gestat', 'dmage', 'dmeduc', 'dmar', 'nprevist', 'adequacy']
+        X_num_cols = ['dtotord', 'cigar', 'drink', 'wtgain']
+        X_ohe_cols = ['pldel_2', 'pldel_3', 'pldel_4', 'pldel_5', 'resstatb_2', 'resstatb_3', 'resstatb_4', 
+                    'mpcb_1', 'mpcb_2', 'mpcb_3', 'mpcb_4', 'mpcb_5', 'mpcb_6', 'mpcb_7', 'mpcb_8', 'mpcb_9']
+        X_cols = X_binary_cols + X_num_cols + X_ohe_cols
+        W_col = 'W'
+        y_cols = ['observed_time', 'event']
+        cate_true_col = 'true_cate'
+    else:
+        raise NotImplementedError(f"Dataset type {dataset_type} not implemented")
+
+    # --- splitting loop ---
+    split_results = {}
+    for rand_idx in range(num_repeats):
+        random_idx_vals = experiment_repeat_setups[f'random_idx{rand_idx}'].values
+        train_ids = random_idx_vals[:train_size]
+        val_ids   = random_idx_vals[train_size:train_size+val_size]
+        test_ids  = random_idx_vals[train_size+val_size:train_size+val_size+test_size]
+
+        def _subset(ids):
+            df = dataset_df[dataset_df['id'].isin(ids)]
+            X = df[X_cols].to_numpy()
+            W = df[W_col].to_numpy()
+            Y = df[y_cols].to_numpy()
+            if cate_true_col is not None and cate_true_col in df.columns:
+                cate_true = df[cate_true_col].to_numpy()
+            else:
+                cate_true = (df["T1"] - df["T0"]).to_numpy()
+            return X, W, Y, cate_true
+        
+        split_results[rand_idx] = {
+            "train": _subset(train_ids),
+            "val":   _subset(val_ids),
+            "test":  _subset(test_ids)
+        }
+
+    return split_results
 
 
 class SyntheticDataGeneratorPlus:
