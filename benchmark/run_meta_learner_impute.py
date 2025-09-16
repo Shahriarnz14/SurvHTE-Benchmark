@@ -152,7 +152,7 @@ def main(args):
                                                 base_model_k: 
                                                 {
                                                     f"{stat}_{metric_j}": func([
-                                                        avg[i]['base_model_eval'][base_model_k][metric_j] for i in random_idx_col_list
+                                                        avg[i]['base_model_eval'][base_model_k][metric_j] for i in range(num_repeats)
                                                         if i in avg
                                                     ])
                                                     for metric_j in metric_j_dict
