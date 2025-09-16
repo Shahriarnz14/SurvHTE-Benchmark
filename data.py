@@ -231,10 +231,11 @@ class SyntheticDataGenerator:
                 'metadata': self._meta}
 
 
-def load_data(dataset_type='synthetic', data_dir='./data/synthetic/'):
+def load_data(dataset_type='synthetic', data_dir='./data'):
     experiment_setups = {}
+    experiment_repeat_setups = None
     if dataset_type == 'synthetic':
-        idx_split_file_path = os.path.join(data_dir, 'idx_split.csv')
+        idx_split_file_path = os.path.join(data_dir, 'synthetic', 'idx_split.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
         for causal_config in ["RCT-50",
                             "RCT-5",
@@ -244,7 +245,7 @@ def load_data(dataset_type='synthetic', data_dir='./data/synthetic/'):
                             "OBS-CPS-IC",
                             "OBS-UConf-IC",
                             "OBS-NoPos-IC"]:
-            data_path = os.path.join(data_dir, f'{causal_config}.h5')
+            data_path = os.path.join(data_dir, 'synthetic', f'{causal_config}.h5')
             scenario_dict = {}
             for survival_scenario in ['A', 'B', 'C', 'D', 'E']:
                 dataset_key = f'Scenario_{survival_scenario}/data'
@@ -284,12 +285,46 @@ def load_data(dataset_type='synthetic', data_dir='./data/synthetic/'):
                 scenario_dict[f"Scenario_{survival_scenario}"] = result
             
             experiment_setups[causal_config] = scenario_dict
-        
+    elif dataset_type == 'actg_syn':
+        data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
+        idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_actg_syn.csv')
+        experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
+        df = pd.read_csv(data_path)
+        summary_characteristics = {
+            # rates
+            'censoring_rate': 1-df['event'].mean(),
+            'treatment_rate': df['W'].mean(),
+
+            # event times
+            'event_time_min': df['T'].min(),
+            'event_time_25pct': df['T'].quantile(0.25),
+            'event_time_median': df['T'].median(),
+            'event_time_75pct': df['T'].quantile(0.75),
+            'event_time_max': df['T'].max(),
+            'event_time_mean': df['T'].mean(),
+            'event_time_std': df['T'].std(),
+
+            # censoring times
+            'censoring_time_min': df['C'].min(),
+            'censoring_time_median': df['C'].median(),
+            'censoring_time_max': df['C'].max(),
+            'censoring_time_mean': df['C'].mean(),
+            'censoring_time_std': df['C'].std(),
+
+            # treatment effects
+            'ate': (df['T1']-df['T0']).mean(),
+            'cate_min': (df['T1']-df['T0']).min(),
+            'cate_median': (df['T1']-df['T0']).median(),
+            'cate_max': (df['T1']-df['T0']).max()
+        }
+        result = {"dataset": df, 
+                  "summary": summary_characteristics}
+        scenario_dict = {'Scenario_A': result} # just one scenario 
+        experiment_setups['actg_syn'] = scenario_dict
     else:
         raise NotImplementedError
     
     return experiment_setups, experiment_repeat_setups
-
 
 
 def prepare_data_split(dataset_df, experiment_repeat_setups, 
@@ -327,6 +362,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         X_cols = [c for c in dataset_df.columns if c.startswith("X") and c[1:].isdigit()]
         W_col = 'W'
         y_cols = ['observed_time', 'event']
+        idx_col = 'id'
     elif dataset_type in ('actg', 'actgL'):
         X_bi_cols = ['gender', 'race', 'hemo', 'homo', 'drugs', 'str2', 'symptom']
         X_cont_cols = ['age', 'wtkg',  'karnof', 'cd40', 'cd80']
@@ -335,6 +371,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         y_cols = ['observed_time_month', 'effect_non_censor']
         W_col = 'trt'
         cate_true_col = 'cate_base'
+        idx_col = 'id'
     elif dataset_type == 'mimicSyn':
         X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
                     'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
@@ -349,13 +386,15 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         W_col = 'W'
         y_cols = ['observed_time', 'event']
         cate_true_col = 'true_cate'
-    elif dataset_type == 'actgSyn':
+        idx_col = 'idx'
+    elif dataset_type == 'actg_syn':
         X_cols = ['age', 'wtkg', 'hemo', 'homo', 'drugs', 'karnof', 'oprior', 'z30', 'zprior', 'preanti', 
-                'race', 'gender', 'str2', 'strat', 'symptom', 'treat', 'offtrt', 
-                'cd40', 'cd420', 'cd496', 'r', 'cd80', 'cd820']
+                    'race', 'gender', 'str2', 'strat', 'symptom', 'treat', 'offtrt', 
+                    'cd40', 'cd420', 'cd496', 'r', 'cd80', 'cd820'] 
         W_col = 'W'
         y_cols = ['observed_time', 'event']
         cate_true_col = 'true_cate'
+        idx_col = 'idx'
     elif dataset_type == 'twin':
         X_binary_cols = ['anemia', 'cardiac', 'lung', 'diabetes', 'herpes', 'hydra',
                         'hemo', 'chyper', 'phyper', 'eclamp', 'incervix', 'pre4000', 'preterm',
@@ -368,6 +407,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         W_col = 'W'
         y_cols = ['observed_time', 'event']
         cate_true_col = 'true_cate'
+        idx_col = 'idx'
     else:
         raise NotImplementedError(f"Dataset type {dataset_type} not implemented")
 
@@ -380,7 +420,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         test_ids  = random_idx_vals[train_size+val_size:train_size+val_size+test_size]
 
         def _subset(ids):
-            df = dataset_df[dataset_df['id'].isin(ids)]
+            df = dataset_df[dataset_df[idx_col].isin(ids)]
             X = df[X_cols].to_numpy()
             W = df[W_col].to_numpy()
             Y = df[y_cols].to_numpy()
