@@ -4,6 +4,9 @@ import numpy as np
 from econml.dml import DML, CausalForestDML
 from econml.sklearn_extensions.linear_model import StatsModelsLinearRegression
 from econml.inference import BootstrapInference
+import os
+import pickle
+from models_utils.checkpoint_utils import ensure_dir
 
 class BaseDirectLearner(ABC):
     """
@@ -30,6 +33,39 @@ class BaseDirectLearner(ABC):
         # ate_pred = np.mean(cate_pred)
         ate_pred = self.model.ate_inference(X)
         return mse, cate_pred, ate_pred
+    
+    def save_model(self, filepath):
+        """Save the DML learner model."""
+        ensure_dir(os.path.dirname(filepath))
+        model_data = {
+            'model_type': self.__class__.__name__,
+            'model': self.model,
+            'num_bootstrap_samples': self.num_bootstrap_samples
+        }
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f)
+        print(f"Model saved to {filepath}")
+
+    def load_model(self, filepath):
+        """Load a saved DML learner model."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        self.model = model_data['model']
+        self.num_bootstrap_samples = model_data['num_bootstrap_samples']
+        print(f"Model loaded from {filepath}")
+        return self
+
+    @classmethod
+    def load(cls, filepath):
+        """Class method to load a model."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        instance = cls()
+        instance.model = model_data['model']
+        instance.num_bootstrap_samples = model_data['num_bootstrap_samples']
+        return instance
     
 
 class DoubleML(BaseDirectLearner):

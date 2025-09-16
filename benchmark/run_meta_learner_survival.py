@@ -11,12 +11,13 @@ from models_causal_survival_meta.meta_learners_survival import TLearnerSurvival,
 from data import load_data, prepare_data_split
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
+from models_utils.checkpoint_utils import get_checkpoint_path
 
 
 def main(args):
     # TODO: make the following args
     num_repeats = 10
-    dataset_type = 'actg_syn'
+    dataset_type = 'synthetic'
     cate_true_col = None
     train_size = 0.5
     val_size = 0.25
@@ -125,6 +126,19 @@ def main(args):
 
                 # Fit the learner
                 learner.fit(X_train, W_train, Y_train)
+
+                # Generate checkpoint path
+                checkpoint_path = get_checkpoint_path(
+                    dataset_type='synthetic',
+                    causal_config=config_name,
+                    scenario=scenario_key,
+                    model_family=args.meta_learner,
+                    model_name=f"{args.meta_learner}_{base_model}_{args.survival_metric}",
+                    repeat_idx=rand_idx
+                )
+
+                # Save the model
+                learner.save_model(checkpoint_path)
                 
                 # Evaluate base survival models on test data
                 base_model_eval = learner.evaluate_test(X_test, Y_test, W_test)
@@ -151,6 +165,13 @@ def main(args):
                     "ate_bias_val": ate_val_pred - ate_true,
                     "base_model_eval_val": base_model_eval_val,  # Store base model evaluation results
                 }
+
+                # print(f"Completed {config_name}, {scenario_key}, repeat {rand_idx}: CATE MSE={mse_test:.4f}, ATE True={ate_true:.4f}, ATE Pred={ate_test_pred:.4f}")
+                # loaded_learner = learner.load_model(checkpoint_path)
+                # loaded_mse_test, cate_test_pred, loaded_ate_test_pred = loaded_learner.evaluate(X_test, cate_true_test, W_test)
+                # print(f"Loaded model evaluation: CATE MSE={loaded_mse_test:.4f}, ATE True={ate_true:.4f}, ATE Pred={loaded_ate_test_pred:.4f}")
+
+                # import pdb; pdb.set_trace()
 
             end_time = time.time()
             avg = results_dict[config_name][scenario_key]

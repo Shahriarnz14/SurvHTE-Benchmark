@@ -8,6 +8,9 @@ from sksurv.linear_model import CoxPHSurvivalAnalysis
 from pycox.models import DeepHitSingle, CoxPH
 import torchtuples as tt
 import inspect
+import os
+import pickle
+from models_utils.checkpoint_utils import ensure_dir
 
 from .utils_survival import get_concordance_score, get_integrated_brier_score, get_cumulative_dynamic_auc
 
@@ -546,3 +549,59 @@ class SurvivalModelBase:
                 median_survival_times.append(
                     times[np.searchsorted(-curve, [-.5])[0]])
         return np.array(median_survival_times)
+    
+    def save_model(self, filepath):
+        """Save the survival model."""
+        ensure_dir(os.path.dirname(filepath))
+        
+        model_data = {
+            'model_type': self.model_type,
+            'hyperparams': self.hyperparams,
+            'hyperparams_grid': self.hyperparams_grid,
+            'random_seed': self.random_seed,
+            'extrapolate_median': self.extrapolate_median,
+            'cv': self.cv,
+            'time_grid': self.time_grid,
+            'survival_train': self.survival_train,
+            'best_params': self.best_params
+        }
+        
+        # Handle deep learning models
+        if self.model_type in ['DeepSurv', 'DeepHit'] and self.model:
+            model_data['model'] = self.model
+            # Save PyTorch state dict separately
+            torch_path = filepath.replace('.pkl', '_state.pt')
+            torch.save(self.model.net.state_dict(), torch_path)
+        else:
+            model_data['model'] = self.model
+        
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+        print(f"Survival model saved to {filepath}")
+
+    def load_model(self, filepath):
+        """Load a saved survival model."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        self.model_type = model_data['model_type']
+        self.hyperparams = model_data['hyperparams']
+        self.hyperparams_grid = model_data['hyperparams_grid']
+        self.random_seed = model_data['random_seed']
+        self.extrapolate_median = model_data['extrapolate_median']
+        self.cv = model_data['cv']
+        self.time_grid = model_data.get('time_grid')
+        self.survival_train = model_data.get('survival_train')
+        self.best_params = model_data.get('best_params')
+        self.model = model_data.get('model')
+        
+        # Load PyTorch state dict for deep models
+        if self.model_type in ['DeepSurv', 'DeepHit'] and self.model:
+            torch_path = filepath.replace('.pkl', '_state.pt')
+            if os.path.exists(torch_path):
+                state_dict = torch.load(torch_path)
+                self.model.net.load_state_dict(state_dict)
+        
+        print(f"Survival model loaded from {filepath}")
+        return self

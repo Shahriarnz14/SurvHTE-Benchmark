@@ -10,6 +10,9 @@ from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.linear_model import Ridge, Lasso
 from xgboost import XGBRegressor
 from .regressor_base import RegressorBaseLearner
+from models_utils.checkpoint_utils import ensure_dir
+import pickle
+import os
 
 class BaseMetaLearner(ABC):
     """
@@ -77,6 +80,45 @@ class BaseMetaLearner(ABC):
         ate_pred = self.model.ate_inference(X)
         mse = mean_squared_error(cate_true, cate_pred)
         return mse, cate_pred, ate_pred
+    
+    def save_model(self, filepath):
+        """Save the meta-learner model."""
+        ensure_dir(os.path.dirname(filepath))
+        model_data = {
+            'model_type': self.__class__.__name__,
+            'base_model_name': self.base_model_name,
+            'model': self.model,
+            'num_bootstrap_samples': self.num_bootstrap_samples
+        }
+        with open(filepath, 'wb') as f:
+            pickle.dump(model_data, f)
+        print(f"Model saved to {filepath}")
+
+    def load_model(self, filepath):
+        """Load a saved meta-learner model."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        if model_data['model_type'] != self.__class__.__name__:
+            raise ValueError(f"Model type mismatch: expected {self.__class__.__name__}, "
+                            f"got {model_data['model_type']}")
+        
+        self.base_model_name = model_data['base_model_name']
+        self.model = model_data['model']
+        self.num_bootstrap_samples = model_data['num_bootstrap_samples']
+        print(f"Model loaded from {filepath}")
+        return self
+
+    @classmethod
+    def load(cls, filepath):
+        """Class method to load a model."""
+        with open(filepath, 'rb') as f:
+            model_data = pickle.load(f)
+        
+        instance = cls(base_model_name=model_data['base_model_name'])
+        instance.model = model_data['model']
+        instance.num_bootstrap_samples = model_data['num_bootstrap_samples']
+        return instance
     
     
 class T_Learner(BaseMetaLearner):

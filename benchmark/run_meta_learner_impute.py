@@ -10,6 +10,7 @@ from tqdm import tqdm
 from models_causal_impute.meta_learners import T_Learner, S_Learner, X_Learner, DR_Learner
 from models_causal_impute.survival_eval_impute import SurvivalEvalImputer
 from data import load_data, prepare_data_split
+from models_utils.checkpoint_utils import get_checkpoint_path
 
 
 def summarize_experiment_results(results_dict):
@@ -46,7 +47,7 @@ def summarize_experiment_results(results_dict):
 def main(args):
     # TODO: make the following args
     num_repeats = 10
-    dataset_type = 'actg_syn'
+    dataset_type = 'synthetic'
     cate_true_col = None
     train_size = 0.5
     val_size = 0.25
@@ -125,6 +126,18 @@ def main(args):
                     learner.fit(X_train, W_train, Y_train_imputed)
                     mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
 
+                    # Generate checkpoint path
+                    checkpoint_path = get_checkpoint_path(
+                        dataset_type=dataset_type,
+                        causal_config=config_name,
+                        scenario=scenario_key,
+                        model_family=args.meta_learner,
+                        model_name=f"{args.meta_learner}_{base_model}_{args.impute_method}",
+                        repeat_idx=rand_idx
+                    )
+                    # Save the model
+                    learner.save_model(checkpoint_path)
+
                     # Evaluate base regression models on test data
                     base_model_eval = learner.evaluate_test(X_test, Y_test_imputed, W_test)
 
@@ -139,6 +152,15 @@ def main(args):
                         "ate_interval": ate_test_pred.conf_int_mean(),
                         "ate_statistics": ate_test_pred,
                     }
+
+                    # print(f"[Info]: Finished {config_name}, {scenario_key}, {base_model}, repeat {rand_idx}. CATE_MSE: {mse_test:.4f}, ATE_pred: {ate_test_pred.mean_point:.4f}, ATE_true: {ate_true:.4f}, ATE_bias: {ate_test_pred.mean_point - ate_true:.4f}")
+
+                    # # loading (must use the correct subclass)
+                    # loaded_learner = learner.load_model(checkpoint_path)
+                    # loaded_mse_test, cate_test_pred, loaded_ate_test_pred = loaded_learner.evaluate(X_test, cate_true_test, W_test)
+                    # print(f"[Loaded Info]: Finished {config_name}, {scenario_key}, {base_model}, repeat {rand_idx}. CATE_MSE: {loaded_mse_test:.4f}, ATE_pred: {loaded_ate_test_pred.mean_point:.4f}, ATE_true: {ate_true:.4f}, ATE_bias: {loaded_ate_test_pred.mean_point - ate_true:.4f}")
+
+                    # import pdb; pdb.set_trace()
 
                 end_time = time.time()
 
@@ -186,7 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_repeats", type=int, default=10)
     parser.add_argument("--train_size", type=int, default=5000)
     parser.add_argument("--test_size", type=int, default=5000)
-    parser.add_argument("--impute_method", type=str, default="Pseudo_obs", choices=["Pseudo_obs", "Margin", "IPCW-T"])
+    parser.add_argument("--impute_method", type=str, default="Margin", choices=["Pseudo_obs", "Margin", "IPCW-T"])
     parser.add_argument("--meta_learner", type=str, default="t_learner", choices=["t_learner", "s_learner", "x_learner", "dr_learner"])
     parser.add_argument("--load_imputed", action="store_true")
     parser.add_argument("--imputed_path", type=str, default="synthetic_data/imputed_times_lookup.pkl")
