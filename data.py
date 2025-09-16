@@ -321,6 +321,50 @@ def load_data(dataset_type='synthetic', data_dir='./data'):
                   "summary": summary_characteristics}
         scenario_dict = {'Scenario_A': result} # just one scenario 
         experiment_setups['actg_syn'] = scenario_dict
+    elif dataset_type == 'mimic_syn':
+        data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
+        idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_mimic_syn.csv')
+        experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
+        for config in ["mimic_1_syn",
+                        "mimic_2_syn",
+                        "mimic_3_syn",
+                        "mimic_4_syn",
+                        "mimic_5_syn",
+                            ]:
+            data_path = os.path.join(data_dir, 'semi-synthetic', f'{config}.csv')
+            df = pd.read_csv(data_path)
+            summary_characteristics = {
+                # rates
+                'censoring_rate': 1-df['event'].mean(),
+                'treatment_rate': df['W'].mean(),
+
+                # event times
+                'event_time_min': df['T'].min(),
+                'event_time_25pct': df['T'].quantile(0.25),
+                'event_time_median': df['T'].median(),
+                'event_time_75pct': df['T'].quantile(0.75),
+                'event_time_max': df['T'].max(),
+                'event_time_mean': df['T'].mean(),
+                'event_time_std': df['T'].std(),
+
+                # censoring times
+                'censoring_time_min': df['C'].min(),
+                'censoring_time_median': df['C'].median(),
+                'censoring_time_max': df['C'].max(),
+                'censoring_time_mean': df['C'].mean(),
+                'censoring_time_std': df['C'].std(),
+
+                # treatment effects
+                'ate': (df['T1']-df['T0']).mean(),
+                'cate_min': (df['T1']-df['T0']).min(),
+                'cate_median': (df['T1']-df['T0']).median(),
+                'cate_max': (df['T1']-df['T0']).max()
+            }
+            result = {"dataset": df, 
+                  "summary": summary_characteristics}
+            scenario_dict = {'Scenario_A': result} # just one scenario 
+            experiment_setups[config] = scenario_dict
+        pass
     else:
         raise NotImplementedError
     
@@ -372,7 +416,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         W_col = 'trt'
         cate_true_col = 'cate_base'
         idx_col = 'id'
-    elif dataset_type == 'mimicSyn':
+    elif dataset_type == 'mimic_syn':
         X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
                     'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
                     'Urea nitrogen', 'Hematocrit', 'Hemoglobin', 'MCH', 'MCHC', 'MCV',
