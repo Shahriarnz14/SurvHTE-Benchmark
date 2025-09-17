@@ -17,7 +17,6 @@ def main(args):
     # TODO: make the following args
     num_repeats = 10
     dataset_type = 'synthetic'
-    cate_true_col = None
     train_size = 0.5
     val_size = 0.25
     test_size = 0.25
@@ -41,7 +40,6 @@ def main(args):
                 dataset_df, experiment_repeat_setups, 
                 num_repeats=num_repeats, 
                 dataset_type=dataset_type,
-                cate_true_col=cate_true_col,
                 train_size=train_size,
                 val_size=val_size,
                 test_size=test_size

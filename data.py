@@ -231,10 +231,10 @@ class SyntheticDataGenerator:
                 'metadata': self._meta}
 
 
-def load_data(dataset_type='synthetic', data_dir='./data'):
+def load_data(dataset_name='synthetic', data_dir='./data'):
     experiment_setups = {}
     experiment_repeat_setups = None
-    if dataset_type == 'synthetic':
+    if dataset_name == 'synthetic':
         idx_split_file_path = os.path.join(data_dir, 'synthetic', 'idx_split.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
         for causal_config in ["RCT-50",
@@ -285,7 +285,7 @@ def load_data(dataset_type='synthetic', data_dir='./data'):
                 scenario_dict[f"Scenario_{survival_scenario}"] = result
             
             experiment_setups[causal_config] = scenario_dict
-    elif dataset_type == 'actg_syn':
+    elif dataset_name == 'actg_syn':
         data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_actg_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
@@ -321,7 +321,7 @@ def load_data(dataset_type='synthetic', data_dir='./data'):
                   "summary": summary_characteristics}
         scenario_dict = {'Scenario_A': result} # just one scenario 
         experiment_setups['actg_syn'] = scenario_dict
-    elif dataset_type == 'mimic_syn':
+    elif dataset_name == 'mimic_syn':
         data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_mimic_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
@@ -364,6 +364,7 @@ def load_data(dataset_type='synthetic', data_dir='./data'):
                   "summary": summary_characteristics}
             scenario_dict = {'Scenario_A': result} # just one scenario 
             experiment_setups[config] = scenario_dict
+    elif dataset_name == 'twin':
         pass
     else:
         raise NotImplementedError
@@ -373,8 +374,7 @@ def load_data(dataset_type='synthetic', data_dir='./data'):
 
 def prepare_data_split(dataset_df, experiment_repeat_setups, 
                        num_repeats=10, 
-                       dataset_type='synthetic',
-                       cate_true_col=None,
+                       dataset_name='synthetic',
                        train_size=5000,
                        val_size=2500,
                        test_size=2500):
@@ -397,17 +397,19 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         test_size = length - train_size - val_size
     else:
         # assume absolute counts were passed in
+        train_size, val_size, test_size = int(train_size), int(val_size), int(test_size)
         total = train_size + val_size + test_size
         assert total <= len(dataset_df), \
             f"Total {total} exceeds dataset size {len(dataset_df)}"
     
     # --- dataset-specific schema ---
-    if dataset_type == 'synthetic':
+    if dataset_name == 'synthetic':
         X_cols = [c for c in dataset_df.columns if c.startswith("X") and c[1:].isdigit()]
         W_col = 'W'
+        cate_true_col=None
         y_cols = ['observed_time', 'event']
         idx_col = 'id'
-    elif dataset_type in ('actg', 'actgL'):
+    elif dataset_name in ('actg', 'actgL'):
         X_bi_cols = ['gender', 'race', 'hemo', 'homo', 'drugs', 'str2', 'symptom']
         X_cont_cols = ['age', 'wtkg',  'karnof', 'cd40', 'cd80']
         U = ['z30']
@@ -416,7 +418,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         W_col = 'trt'
         cate_true_col = 'cate_base'
         idx_col = 'id'
-    elif dataset_type == 'mimic_syn':
+    elif dataset_name == 'mimic_syn':
         X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
                     'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
                     'Urea nitrogen', 'Hematocrit', 'Hemoglobin', 'MCH', 'MCHC', 'MCV',
@@ -431,7 +433,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         y_cols = ['observed_time', 'event']
         cate_true_col = 'true_cate'
         idx_col = 'idx'
-    elif dataset_type == 'actg_syn':
+    elif dataset_name == 'actg_syn':
         X_cols = ['age', 'wtkg', 'hemo', 'homo', 'drugs', 'karnof', 'oprior', 'z30', 'zprior', 'preanti', 
                     'race', 'gender', 'str2', 'strat', 'symptom', 'treat', 'offtrt', 
                     'cd40', 'cd420', 'cd496', 'r', 'cd80', 'cd820'] 
@@ -439,7 +441,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         y_cols = ['observed_time', 'event']
         cate_true_col = 'true_cate'
         idx_col = 'idx'
-    elif dataset_type == 'twin':
+    elif dataset_name == 'twin':
         X_binary_cols = ['anemia', 'cardiac', 'lung', 'diabetes', 'herpes', 'hydra',
                         'hemo', 'chyper', 'phyper', 'eclamp', 'incervix', 'pre4000', 'preterm',
                         'renal', 'rh', 'uterine', 'othermr', 
@@ -453,7 +455,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         cate_true_col = 'true_cate'
         idx_col = 'idx'
     else:
-        raise NotImplementedError(f"Dataset type {dataset_type} not implemented")
+        raise NotImplementedError(f"Dataset type {dataset_name} not implemented")
 
     # --- splitting loop ---
     split_results = {}
