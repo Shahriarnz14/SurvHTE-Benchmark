@@ -61,7 +61,10 @@ class BaseMetaLearnerSurvival(ABC):
 
     # ---------------------- FIXED SAVE / LOAD ---------------------- #
     def save_model(self, filepath):
-        """Save the survival meta-learner model safely (no deep wrappers pickled)."""
+        """Simplified saver:
+        - RSF/etc: pickle the wrapper
+        - DeepSurv/DeepHit (PyCox): torch-save the net + small sidecar files
+        """
         ensure_dir(os.path.dirname(filepath))
 
         model_data = {
@@ -71,111 +74,251 @@ class BaseMetaLearnerSurvival(ABC):
             'base_model_grid': self.base_model_grid,
             'metric': self.metric,
             'max_time': self.max_time,
-            'models': {},
-            'evaluation_test_dict': self.evaluation_test_dict
+            'models': {},  # metadata map; heavy tensors go to sidecar files
+            'evaluation_test_dict': self.evaluation_test_dict,
         }
 
-        for key, model_wrapper in self.models.items():
-            model_type = getattr(model_wrapper, "model_type", None)
+        for key, wrap in self.models.items():
+            mtype = getattr(wrap, "model_type", None)
 
-            if model_type in ['DeepSurv', 'DeepHit']:
-                # Store only a lightweight spec; don't pickle the wrapper itself.
-                wrapper_spec = {
-                    'model_type': model_type,
-                    'wrapper_class': _class_path(model_wrapper),
-                    # These two are optional but recommended to add to your wrapper __init__
-                    'init_args': getattr(model_wrapper, 'init_args', ()),
-                    'init_kwargs': getattr(model_wrapper, 'init_kwargs', {}),
-                    # If available, capture model class & hparams for reconstruction
-                    'model_class': (_class_path(model_wrapper.model)
-                                    if getattr(model_wrapper, 'model', None) is not None else None),
-                    'model_hparams': getattr(getattr(model_wrapper, 'model', None), 'hparams', None),
+            # ---------- PyCox models ----------
+            if mtype in ('DeepSurv', 'DeepHit'):
+                if not getattr(wrap, 'model', None) or not getattr(wrap.model, 'net', None):
+                    raise RuntimeError(f"Model '{key}' missing .model.net; cannot save.")
+
+                # save full nn.Module (architecture + weights)
+                net_path = filepath.replace('.pkl', f'_{key}_net.pth')
+                torch.save(wrap.model.net, net_path)
+
+                entry = {
+                    'kind': 'pycox',
+                    'model_type': mtype,
+                    'pycox_model_class': wrap.model.__class__.__module__ + '.' + wrap.model.__class__.__name__,
+                    'net_path': os.path.basename(net_path),
                 }
-                model_data['models'][key] = wrapper_spec
 
+                # DeepSurv (CoxPH): persist hazards
+                if mtype == 'DeepSurv':
+                    bh = getattr(wrap.model, 'baseline_hazards_', None)
+                    if bh is not None:
+                        bh_path = filepath.replace('.pkl', f'_{key}_basehaz.pkl')
+                        with open(bh_path, 'wb') as bf:
+                            pickle.dump(bh, bf, protocol=pickle.HIGHEST_PROTOCOL)
+                        entry['basehaz_path'] = os.path.basename(bh_path)
+
+                    bch = getattr(wrap.model, 'baseline_cumulative_hazards_', None)
+                    if bch is not None:
+                        bch_path = filepath.replace('.pkl', f'_{key}_basecumhaz.pkl')
+                        with open(bch_path, 'wb') as bf:
+                            pickle.dump(bch, bf, protocol=pickle.HIGHEST_PROTOCOL)
+                        entry['basecumhaz_path'] = os.path.basename(bch_path)
+
+                    di = getattr(wrap.model, 'duration_index', None)
+                    if di is not None:
+                        di_path = filepath.replace('.pkl', f'_{key}_duration_index.pkl')
+                        with open(di_path, 'wb') as df:
+                            pickle.dump(di, df, protocol=pickle.HIGHEST_PROTOCOL)
+                        entry['duration_index_path'] = os.path.basename(di_path)
+
+                # DeepHit: persist duration_index
+                if mtype == 'DeepHit':
+                    di = getattr(wrap.model, 'duration_index', None)
+                    if di is not None:
+                        di_path = filepath.replace('.pkl', f'_{key}_duration_index.pkl')
+                        with open(di_path, 'wb') as df:
+                            pickle.dump(di, df, protocol=pickle.HIGHEST_PROTOCOL)
+                        entry['duration_index_path'] = os.path.basename(di_path)
+
+                model_data['models'][key] = entry
+
+            # ---------- Classical (e.g., RandomSurvivalForest) ----------
             else:
-                # Non-deep wrappers are usually pickleable; if not, convert to a similar spec.
-                try:
-                    pickle.dumps(model_wrapper, protocol=pickle.HIGHEST_PROTOCOL)
-                    model_data['models'][key] = model_wrapper
-                except Exception:
-                    model_data['models'][key] = {
-                        'model_type': model_type,
-                        'wrapper_class': _class_path(model_wrapper),
-                        'init_args': getattr(model_wrapper, 'init_args', ()),
-                        'init_kwargs': getattr(model_wrapper, 'init_kwargs', {}),
-                        '_non_pickleable': True
-                    }
+                model_data['models'][key] = wrap  # original simple path
 
-        # Save the lightweight pickle
         with open(filepath, 'wb') as f:
             pickle.dump(model_data, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        # Save deep model state_dicts separately
-        for key, model_wrapper in self.models.items():
-            model_type = getattr(model_wrapper, "model_type", None)
-            if model_type in ['DeepSurv', 'DeepHit'] and getattr(model_wrapper, 'model', None):
-                if hasattr(model_wrapper.model, 'net'):
-                    torch_path = filepath.replace('.pkl', f'_{key}_state.pt')
-                    torch.save(model_wrapper.model.net.state_dict(), torch_path)
 
         print(f"Model saved to {filepath}")
 
     def load_model(self, filepath):
-        """Load a saved survival meta-learner model."""
+        """Robust loader: rebuild models and repair expected keys from sidecars if needed."""
+        import importlib
+        import pandas as pd  # for cumsum fallback; ok if unused
+
+        def _import(path):
+            mod, cls = path.rsplit('.', 1)
+            return getattr(importlib.import_module(mod), cls)
+
         with open(filepath, 'rb') as f:
-            model_data = pickle.load(f)
+            data = pickle.load(f)
 
-        self.base_model_name = model_data['base_model_name']
-        self.base_model_params = model_data['base_model_params']
-        self.base_model_grid = model_data['base_model_grid']
-        self.metric = model_data['metric']
-        self.max_time = model_data['max_time']
-        self.evaluation_test_dict = model_data.get('evaluation_test_dict', {})
+        self.base_model_name = data['base_model_name']
+        self.base_model_params = data['base_model_params']
+        self.base_model_grid = data['base_model_grid']
+        self.metric = data['metric']
+        self.max_time = data['max_time']
+        self.evaluation_test_dict = data.get('evaluation_test_dict', {})
 
-        # Recreate models
+        base_dir = os.path.dirname(filepath)
         self.models = {}
-        for key, stored in model_data['models'].items():
-            if isinstance(stored, dict) and stored.get('model_type') in ['DeepSurv', 'DeepHit']:
-                # Rebuild wrapper
-                WrapperCls = _import_from_path(stored['wrapper_class'])
-                init_args = tuple(stored.get('init_args', ()))
-                init_kwargs = dict(stored.get('init_kwargs', {}))
-                wrapper = WrapperCls(*init_args, **init_kwargs)
 
-                # If the wrapper already creates .model with .net, load weights
-                torch_path = filepath.replace('.pkl', f'_{key}_state.pt')
-                if os.path.exists(torch_path):
+        # ---------- First pass: rebuild anything present in the pickle ----------
+        for key, stored in data['models'].items():
+            # PyCox path (DeepSurv / DeepHit)
+            if isinstance(stored, dict) and stored.get('kind') == 'pycox':
+                mtype = stored['model_type']
+                net_path = os.path.join(base_dir, stored['net_path'])
+                net = torch.load(net_path, map_location='cpu')
+
+                from .survival_base import SurvivalModelBase  # local import to avoid cycles
+                wrap = SurvivalModelBase(
+                    model_type=mtype,
+                    hyperparams=self.base_model_params,
+                    hyperparams_grid=self.base_model_grid
+                )
+
+                PyCoxModelCls = _import(stored['pycox_model_class'])
+                try:
+                    wrap.model = PyCoxModelCls(net=net)
+                except TypeError:
+                    wrap.model = PyCoxModelCls(net)
+
+                # Optional eval mode
+                try:
+                    wrap.model.net.eval()
+                except Exception:
+                    pass
+
+                # Restore DeepSurv hazards + duration index
+                if mtype == 'DeepSurv':
+                    bh_path = stored.get('basehaz_path')
+                    bch_path = stored.get('basecumhaz_path')
+                    di_path = stored.get('duration_index_path')
+
+                    if di_path:
+                        with open(os.path.join(base_dir, di_path), 'rb') as df:
+                            wrap.model.duration_index = pickle.load(df)
+                    if bh_path:
+                        with open(os.path.join(base_dir, bh_path), 'rb') as bf:
+                            wrap.model.baseline_hazards_ = pickle.load(bf)
+                    if bch_path:
+                        with open(os.path.join(base_dir, bch_path), 'rb') as bf:
+                            wrap.model.baseline_cumulative_hazards_ = pickle.load(bf)
+                    # Fallback: derive cumulative from hazards if missing
+                    if getattr(wrap.model, 'baseline_hazards_', None) is not None and \
+                    getattr(wrap.model, 'baseline_cumulative_hazards_', None) is None:
+                        try:
+                            wrap.model.baseline_cumulative_hazards_ = wrap.model.baseline_hazards_.cumsum(axis=0)
+                        except Exception:
+                            pass
+
+                # Restore DeepHit duration index
+                if mtype == 'DeepHit':
+                    di_path = stored.get('duration_index_path')
+                    if di_path:
+                        with open(os.path.join(base_dir, di_path), 'rb') as df:
+                            wrap.model.duration_index = pickle.load(df)
+
+                self.models[key] = wrap
+                continue
+
+            # Classical (e.g., RSF) -> already pickleable
+            self.models[key] = stored
+
+        # ---------- Second pass: repair expected keys from sidecars if missing ----------
+        learner_kind = data.get('model_type', '')
+        base_model = self.base_model_name
+
+        def build_from_sidecars(key_needed, pycox_type):
+            """Create a SurvivalModelBase for `key_needed` using saved sidecars."""
+            net_path = filepath.replace('.pkl', f'_{key_needed}_net.pth')
+            if not os.path.exists(net_path):
+                return False  # nothing to rebuild
+            net = torch.load(net_path, map_location='cpu')
+
+            from .survival_base import SurvivalModelBase
+            wrap = SurvivalModelBase(
+                model_type=pycox_type,
+                hyperparams=self.base_model_params,
+                hyperparams_grid=self.base_model_grid
+            )
+
+            # Choose the PyCox class from the type
+            if pycox_type == 'DeepSurv':
+                # pycox.models.cox.CoxPH is the class used by DeepSurv wrappers
+                try:
+                    PyCoxModelCls = _import('pycox.models.cox.CoxPH')
+                except Exception:
+                    PyCoxModelCls = _import('pycox.models.CoxPH')
+            elif pycox_type == 'DeepHit':
+                # DeepHit class path (common in pycox)
+                try:
+                    PyCoxModelCls = _import('pycox.models.deephit.DeepHit')
+                except Exception:
+                    PyCoxModelCls = _import('pycox.models.DeepHit')
+
+            try:
+                wrap.model = PyCoxModelCls(net=net)
+            except TypeError:
+                wrap.model = PyCoxModelCls(net)
+
+            # Restore extras
+            if pycox_type == 'DeepSurv':
+                bhp = filepath.replace('.pkl', f'_{key_needed}_basehaz.pkl')
+                bchp = filepath.replace('.pkl', f'_{key_needed}_basecumhaz.pkl')
+                dip = filepath.replace('.pkl', f'_{key_needed}_duration_index.pkl')
+                if os.path.exists(dip):
+                    with open(dip, 'rb') as fdi:
+                        wrap.model.duration_index = pickle.load(fdi)
+                if os.path.exists(bhp):
+                    with open(bhp, 'rb') as fbh:
+                        wrap.model.baseline_hazards_ = pickle.load(fbh)
+                if os.path.exists(bchp):
+                    with open(bchp, 'rb') as fbch:
+                        wrap.model.baseline_cumulative_hazards_ = pickle.load(fbch)
+                # Fallback derive cumulative
+                if getattr(wrap.model, 'baseline_hazards_', None) is not None and \
+                getattr(wrap.model, 'baseline_cumulative_hazards_', None) is None:
                     try:
-                        if getattr(wrapper, 'model', None) and getattr(wrapper.model, 'net', None):
-                            state_dict = torch.load(torch_path, map_location='cpu')
-                            wrapper.model.net.load_state_dict(state_dict)
-                        # If wrapper has no model yet but we have a class/hparams, try to construct
-                        elif stored.get('model_class'):
-                            ModelCls = _import_from_path(stored['model_class'])
-                            model_hparams = stored.get('model_hparams') or {}
-                            wrapper.model = ModelCls(**model_hparams)
-                            if getattr(wrapper.model, 'net', None):
-                                state_dict = torch.load(torch_path, map_location='cpu')
-                                wrapper.model.net.load_state_dict(state_dict)
-                    except Exception as e:
-                        # Best-effort: keep a usable wrapper even if weights can't be loaded
-                        print(f"[load_model] Warning: failed to load state for '{key}': {e}")
-                self.models[key] = wrapper
+                        wrap.model.baseline_cumulative_hazards_ = wrap.model.baseline_hazards_.cumsum(axis=0)
+                    except Exception:
+                        pass
+            elif pycox_type == 'DeepHit':
+                dip = filepath.replace('.pkl', f'_{key_needed}_duration_index.pkl')
+                if os.path.exists(dip):
+                    with open(dip, 'rb') as fdi:
+                        wrap.model.duration_index = pickle.load(fdi)
 
-            elif isinstance(stored, dict) and stored.get('_non_pickleable'):
-                # Rebuild previously non-pickleable classical wrapper
-                WrapperCls = _import_from_path(stored['wrapper_class'])
-                init_args = tuple(stored.get('init_args', ()))
-                init_kwargs = dict(stored.get('init_kwargs', {}))
-                self.models[key] = WrapperCls(*init_args, **init_kwargs)
+            self.models[key_needed] = wrap
+            return True
 
-            else:
-                # Plain pickled classical model
-                self.models[key] = stored
+        if learner_kind == 'TLearnerSurvival':
+            # Ensure both keys exist
+            for need in ('treated', 'control'):
+                if need not in self.models:
+                    if base_model in ('DeepSurv', 'DeepHit'):
+                        ok = build_from_sidecars(need, base_model)
+                        if not ok:
+                            print(f"[load_model] Warning: missing '{need}' model and no sidecars found.")
+                    else:
+                        print(f"[load_model] Warning: missing '{need}' model for RSF; was it saved?")
+        elif learner_kind == 'SLearnerSurvival':
+            if 's' not in self.models:
+                if base_model in ('DeepSurv', 'DeepHit'):
+                    build_from_sidecars('s', base_model)
+                else:
+                    print("[load_model] Warning: missing 's' model for RSF; was it saved?")
+        elif learner_kind == 'MatchingLearnerSurvival':
+            if 'model' not in self.models:
+                if base_model in ('DeepSurv', 'DeepHit'):
+                    build_from_sidecars('model', base_model)
+                else:
+                    print("[load_model] Warning: missing 'model' for RSF; was it saved?")
 
         print(f"Model loaded from {filepath}")
         return self
+
+
     # -------------------- END FIXED SAVE / LOAD -------------------- #
 
 
