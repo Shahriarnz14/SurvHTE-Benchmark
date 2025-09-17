@@ -101,7 +101,7 @@ def main(args):
                     if args.load_imputed:
                         with open(imputed_path, "rb") as f:
                             imputed_times = pickle.load(f)
-                        imputed_results = imputed_times.get(args.impute_method, {}).get(config_name, {}).get(scenario_key, {}).get(args.train_size, {}).get(rand_idx, {})
+                        imputed_results = imputed_times.get(args.impute_method, {}).get(config_name, {}).get(scenario_key, {}).get(train_size_str, {}).get(rand_idx, {})
                         Y_train_imputed = imputed_results.get("Y_train_imputed", None)
                         Y_val_imputed = imputed_results.get("Y_val_imputed", None)
                         Y_test_imputed = imputed_results.get("Y_test_imputed", None)
