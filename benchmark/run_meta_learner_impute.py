@@ -160,6 +160,7 @@ def main(args):
                         results_dict[config_name][scenario_key][base_model][rand_idx] = {
                             "ate_true": ate_true,
                             "runtime": runtime,
+                            "inference_time": inference_time,
                             # val set:
                             "cate_true_val": cate_true_val,
                             "cate_pred_val": cate_val_pred,
