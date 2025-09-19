@@ -1,27 +1,28 @@
 #!/bin/bash
 
+# Usage:
+# ./scripts/run_dml_learners_impute.sh
 
-# Get arguments or set defaults
-# DML_LEARNER=${1:-causal_forest}
-DML_LEARNERS=("causal_forest" "double_ml") 
+DATA_DIR="./data"
+RESULT_DIR="./results"
+DATASET="twin"
+NUM_REPEATS=10
+TRAIN_SIZE=0.5
+VAL_SIZE=0.25
+TEST_SIZE=0.25
 
-# Constants
-REPEATS=10
-IMPUTED_PATH="real_data/imputed_times_lookup_twin.pkl"
-IMPUTE_METHODS=("Pseudo_obs" "Margin" "IPCW-T")
-
-# Loop through each method and run
-for METHOD in "${IMPUTE_METHODS[@]}"
-do
-    for DML_LEARNER in "${DML_LEARNERS[@]}"
-    do
-        echo "Running with imputation method: $METHOD, dml-learner: $DML_LEARNER"
-        python run_dml_learner_impute_twin.py \
-            --num_repeats $REPEATS \
-            --train_size 0.5 \
-            --dml_learner $DML_LEARNER \
-            --impute_method $METHOD \
-            --load_imputed \
-            --imputed_path $IMPUTED_PATH
-    done
+for impute in "Pseudo_obs" "Margin" "IPCW-T"; do
+  for learner in "double_ml" "causal_forest"; do
+    echo "Running with impute_method=${impute}, dml_learner=${learner}"
+    python benchmark/run_dml_learner_impute.py \
+      --num_repeats ${NUM_REPEATS} \
+      --dataset_name ${DATASET} \
+      --data_dir ${DATA_DIR} \
+      --result_dir ${RESULT_DIR} \
+      --train_size ${TRAIN_SIZE} \
+      --val_size ${VAL_SIZE} \
+      --test_size ${TEST_SIZE} \
+      --impute_method ${impute} \
+      --dml_learner ${learner}
+  done
 done
