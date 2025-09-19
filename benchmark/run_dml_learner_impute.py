@@ -122,30 +122,37 @@ def main(args):
 
                     # Save the model
                     learner.save_model(checkpoint_path)
+                    
 
-                mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
-                mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
+                    start_time = time.time()
+                    mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
+                    mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
+                    end_time = time.time()
+                    inference_time = end_time - start_time
 
-                results_dict[config_name][scenario_key][rand_idx] = {
-                    "ate_true": ate_true,
-                    "runtime": runtime,
-                    # val set:
-                    "cate_true_val": cate_true_val,
-                    "cate_pred_val": cate_val_pred,
-                    "ate_pred_val": ate_val_pred.mean_point,
-                    "cate_mse_val": mse_val,
-                    "ate_bias_val": ate_val_pred.mean_point - ate_true,
-                    "ate_interval_val": ate_val_pred.conf_int_mean(),
-                    "ate_statistics_val": ate_val_pred,
-                    # test set:
-                    "cate_true": cate_true_test,
-                    "cate_pred": cate_test_pred,
-                    "ate_pred": ate_test_pred.mean_point,
-                    "cate_mse": mse_test,
-                    "ate_bias": ate_test_pred.mean_point - ate_true,
-                    "ate_interval": ate_test_pred.conf_int_mean(),
-                    "ate_statistics": ate_test_pred,
-                }
+                    results_dict[config_name][scenario_key][rand_idx] = {
+                        "ate_true": ate_true,
+                        "runtime": runtime,
+                        "inference_time": inference_time,
+                        # val set:
+                        "cate_true_val": cate_true_val,
+                        "cate_pred_val": cate_val_pred,
+                        "ate_pred_val": ate_val_pred.mean_point,
+                        "cate_mse_val": mse_val,
+                        "ate_bias_val": ate_val_pred.mean_point - ate_true,
+                        "ate_interval_val": ate_val_pred.conf_int_mean(),
+                        "ate_statistics_val": ate_val_pred,
+                        # test set:
+                        "cate_true": cate_true_test,
+                        "cate_pred": cate_test_pred,
+                        "ate_pred": ate_test_pred.mean_point,
+                        "cate_mse": mse_test,
+                        "ate_bias": ate_test_pred.mean_point - ate_true,
+                        "ate_interval": ate_test_pred.conf_int_mean(),
+                        "ate_statistics": ate_test_pred,
+                    }
+
+                    print(f'\ttraining time: {runtime:.0f} seconds; inference time: {inference_time:.0f} seconds')
 
                 with open(output_pickle_path, "wb") as f:
                     pickle.dump(results_dict, f)
