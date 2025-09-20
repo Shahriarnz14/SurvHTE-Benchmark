@@ -145,7 +145,7 @@ class SyntheticDataGenerator:
         if s in ['C', 'E']:
             lam = X[:,1]**2 + X[:,2] + 6 + 2*(np.sqrt(X[:,0]) - 0.3) * W
             lam += 0.5 * U_counfounder
-            if s in [7,8]:
+            if s == 'E':
                 lam += 1
             self._meta['T_distribution'] = 'Poisson'
             return np.random.poisson(lam)
@@ -176,10 +176,10 @@ class SyntheticDataGenerator:
             s = self.scenario
             # Cox-based C for scenarios B & D
             if s in ('B', 'D'):
-                if s == 1:
+                if s == 'B':
                     lpC = -1.75 -0.5*np.sqrt(X[:,1]) +0.2*X[:,2]
                     lpC += (1.15 +0.5*(X[:,0]<0.5) -0.3*np.sqrt(X[:,1])) * W
-                else:  # s==9
+                else:  # s==D
                     lpC = -0.9 +2*np.sqrt(X[:,1]) +2*X[:,2]
                     lpC += (1.15 +0.5*(X[:,0]<0.5) -0.3*np.sqrt(X[:,1])) * W
                 return self._simulate_cox(lpC, 'weibull', {'lambda':1.0, 'k':2.0})
