@@ -36,6 +36,11 @@ def main(args):
     os.makedirs(os.path.dirname(output_pickle_path), exist_ok=True)
     print("Output results path:", output_pickle_path)
 
+    if os.path.exists(imputed_path):
+        with open(imputed_path, "rb") as f:
+            imputed_times = pickle.load(f)
+    else:
+        raise FileNotFoundError(f"Required imputed file not found: {imputed_path}")
 
     if os.path.exists(output_pickle_path):
         print("Loading results from existing file.")
@@ -76,43 +81,46 @@ def main(args):
                 event_time_50pct = dataset_summary['event_time_median']
                 event_time_75pct = dataset_summary['event_time_75pct']
 
-                # Generate checkpoint path
-                checkpoint_path = get_checkpoint_path(
-                    dataset_type=dataset_type,
-                    causal_config=config_name,
-                    scenario=scenario_key,
-                    model_family=args.dml_learner,
-                    model_name=f"{args.dml_learner}_{args.impute_method}",
-                    repeat_idx=rand_idx
-                )
+                
+                # Generate model checkpoint path
+                if args.save_model:
+                    checkpoint_path = get_checkpoint_path(
+                        dataset_type=dataset_type,
+                        causal_config=config_name,
+                        scenario=scenario_key,
+                        model_family=args.dml_learner,
+                        model_name=f"{args.dml_learner}_{args.impute_method}",
+                        repeat_idx=rand_idx
+                    )
 
                 learner_cls = {"causal_forest": CausalForest, "double_ml": DoubleML}[args.dml_learner]
                 learner = learner_cls()
 
-                if os.path.exists(checkpoint_path) and rand_idx in results_dict[config_name][scenario_key]:
-                    print(f'Loading from model checkpoint {checkpoint_path}', end=' ')
-                    learner.load_model(checkpoint_path)
+                if rand_idx in results_dict[config_name][scenario_key]:
+                    # t_ = time.time()
+                    # learner.load_model(checkpoint_path)
+                    # print(f'Took {(time.time() - t_):.0f} seconds to load the model')
                     runtime = results_dict[config_name][scenario_key][rand_idx]["runtime"]
-                    print(f'run time {runtime:.0f} seconds')
+                    print(f'\ttraining time from previous run: {runtime:.0f} seconds')
 
                 else:
                     start_time = time.time()
 
-                    if args.load_imputed:
-                        with open(imputed_path, "rb") as f:
-                            imputed_times = pickle.load(f)
-                        imputed_results = imputed_times.get(args.impute_method, {}).get(config_name, {}).get(scenario_key, {}).get(train_size_str, {}).get(rand_idx, {})
-                        Y_train_imputed = imputed_results.get("Y_train_imputed", None)
-                        Y_val_imputed = imputed_results.get("Y_val_imputed", None)
-                        Y_test_imputed = imputed_results.get("Y_test_imputed", None)
-                    else:
-                        Y_train_imputed = Y_val_imputed = Y_test_imputed = None
-
-                    if Y_train_imputed is None:
-                        survival_imputer = SurvivalEvalImputer(imputation_method=args.impute_method)
-                        Y_train_imputed, Y_val_test_imputed = survival_imputer.fit_transform(Y_train, Y_val_test)
-                        Y_val_imputed = Y_val_test_imputed[:val_size_]
-                        Y_test_imputed = Y_val_test_imputed[val_size_:]
+                    try:
+                        imputed_results = \
+                            imputed_times.get(args.impute_method, {})\
+                                .get(config_name, {}).get(scenario_key, {})\
+                                    .get(train_size_str, {}).get(rand_idx, {})
+                        Y_train_imputed = imputed_results["Y_train_imputed"]
+                        Y_val_imputed = imputed_results["Y_val_imputed"]
+                        Y_test_imputed = imputed_results["Y_test_imputed"]
+                    except KeyError as e:
+                        raise KeyError(
+                            f"Missing imputed results in {imputed_path}.\n"
+                            f"Details: method={args.impute_method}, config={config_name}, "
+                            f"scenario={scenario_key}, train_size={train_size_str}, repeat={rand_idx}, "
+                            f"missing key={e}"
+                        )
 
                     learner.fit(X_train, W_train, Y_train_imputed)
 
@@ -121,8 +129,12 @@ def main(args):
 
 
                     # Save the model
-                    learner.save_model(checkpoint_path)
-                    
+                    ## The model by econml is too large (usually several GBs!) when saved, 
+                    ## so by default we do not save trained models
+                    if args.save_model:
+                        t_ = time.time()
+                        learner.save_model(checkpoint_path)
+                        print(f'Took {(time.time() - t_):.0f} seconds to save the model')
 
                     start_time = time.time()
                     mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
@@ -154,8 +166,8 @@ def main(args):
 
                     print(f'\ttraining time: {runtime:.0f} seconds; inference time: {inference_time:.0f} seconds')
 
-                with open(output_pickle_path, "wb") as f:
-                    pickle.dump(results_dict, f)
+                    with open(output_pickle_path, "wb") as f:
+                        pickle.dump(results_dict, f)
 
                     # print(f"Completed {config_name}, {scenario_key}, repeat {rand_idx}: CATE MSE={mse_test:.4f}, ATE True={ate_true:.4f}, ATE Pred={ate_test_pred.mean_point:.4f}")
 
@@ -185,11 +197,11 @@ def main(args):
                 "std_cate_mse": np.std([avg[i]["cate_mse"] for i in range(num_repeats) if i in avg]),
                 "mean_ate_pred": np.mean([avg[i]["ate_pred"] for i in range(num_repeats) if i in avg]),
                 "std_ate_pred": np.std([avg[i]["ate_pred"] for i in range(num_repeats) if i in avg]),
-                "mean_ate_true": np.mean([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
-                "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                 "mean_ate_bias": np.mean([avg[i]["ate_bias"] for i in range(num_repeats) if i in avg]),
                 "std_ate_bias": np.std([avg[i]["ate_bias"] for i in range(num_repeats) if i in avg]),
 
+                "mean_ate_true": np.mean([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
+                "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                 "runtime": np.mean([avg[i]["runtime"] for i in range(num_repeats) if i in avg])
             }
 
@@ -206,8 +218,11 @@ if __name__ == "__main__":
     parser.add_argument("--train_size", type=float, default=5000)
     parser.add_argument("--val_size", type=float, default=2500)
     parser.add_argument("--test_size", type=float, default=2500)
-    parser.add_argument("--impute_method", type=str, default="Margin", choices=["Pseudo_obs", "Margin", "IPCW-T"])
-    parser.add_argument("--dml_learner", type=str, default="causal_forest", choices=["double_ml", "causal_forest"])
-    parser.add_argument("--load_imputed", action="store_true")
+    parser.add_argument("--impute_method", type=str, default="Margin", 
+                        choices=["Pseudo_obs", "Margin", "IPCW-T"])
+    parser.add_argument("--dml_learner", type=str, default="causal_forest", 
+                        choices=["double_ml", "causal_forest"])
+    parser.add_argument("--save_model", action="store_true", 
+                        help="If set, save the trained model. Default is False.")
     args = parser.parse_args()
     main(args)

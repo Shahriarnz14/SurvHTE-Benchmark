@@ -36,6 +36,12 @@ def main(args):
     os.makedirs(os.path.dirname(output_pickle_path), exist_ok=True)
     print("Output results path:", output_pickle_path)
 
+    if os.path.exists(imputed_path):
+        with open(imputed_path, "rb") as f:
+            imputed_times = pickle.load(f)
+    else:
+        raise FileNotFoundError(f"Required imputed file not found: {imputed_path}")
+
     # base_regressors = ['ridge', 'lasso', 'rf', 'gbr', 'xgb']
     base_regressors = ['lasso', 'rf', 'xgb']
 
@@ -81,56 +87,46 @@ def main(args):
                     event_time_50pct = dataset_summary['event_time_median']
                     event_time_75pct = dataset_summary['event_time_75pct']
 
-                    # Generate checkpoint path
-                    checkpoint_path = get_checkpoint_path(
-                        dataset_type=dataset_type,
-                        causal_config=config_name,
-                        scenario=scenario_key,
-                        model_family=args.meta_learner,
-                        model_name=f"{args.meta_learner}_{base_model}_{args.impute_method}",
-                        repeat_idx=rand_idx
-                    )
+                    # Generate model checkpoint path
+                    if args.save_model:
+                        checkpoint_path = get_checkpoint_path(
+                            dataset_type=dataset_type,
+                            causal_config=config_name,
+                            scenario=scenario_key,
+                            model_family=args.meta_learner,
+                            model_name=f"{args.meta_learner}_{base_model}_{args.impute_method}",
+                            repeat_idx=rand_idx
+                        )
 
                     learner_cls = {"t_learner": T_Learner, "s_learner": S_Learner, 
                                    "x_learner": X_Learner, "dr_learner": DR_Learner}[args.meta_learner]
                     learner = learner_cls(base_model_name=base_model)
 
-                    if os.path.exists(checkpoint_path) and rand_idx in results_dict[config_name][scenario_key][base_model]:
-                        print(f'Loading from model checkpoint {checkpoint_path}', end=' ')
-                        learner.load_model(checkpoint_path)
+                    if rand_idx in results_dict[config_name][scenario_key][base_model]:
+                        # t_ = time.time()
+                        # learner.load_model(checkpoint_path)
+                        # print(f'Took {(time.time() - t_):.0f} seconds to load the model')
                         runtime = results_dict[config_name][scenario_key][base_model][rand_idx]["runtime"]
-                        with open(imputed_path, "rb") as f:
-                            imputed_times = pickle.load(f)
-                        imputed_results = \
-                            imputed_times.get(args.impute_method, {})\
-                                .get(config_name, {}).get(scenario_key, {})\
-                                    .get(train_size_str, {}).get(rand_idx, {})
-                        Y_train_imputed = imputed_results.get("Y_train_imputed", None)
-                        Y_val_imputed = imputed_results.get("Y_val_imputed", None)
-                        Y_test_imputed = imputed_results.get("Y_test_imputed", None)
-                        print(f'run time {runtime:.0f} seconds')
+                        print(f'\ttraining time from previous run: {runtime:.0f} seconds')
 
                     else:
                         start_time = time.time()
 
-                        if args.load_imputed:
-                            with open(imputed_path, "rb") as f:
-                                imputed_times = pickle.load(f)
+                        try:
                             imputed_results = \
                                 imputed_times.get(args.impute_method, {})\
                                     .get(config_name, {}).get(scenario_key, {})\
                                         .get(train_size_str, {}).get(rand_idx, {})
-                            Y_train_imputed = imputed_results.get("Y_train_imputed", None)
-                            Y_val_imputed = imputed_results.get("Y_val_imputed", None)
-                            Y_test_imputed = imputed_results.get("Y_test_imputed", None)
-                        else:
-                            Y_train_imputed = Y_val_imputed = Y_test_imputed = None
-
-                        if Y_train_imputed is None:
-                            survival_imputer = SurvivalEvalImputer(imputation_method=args.impute_method)
-                            Y_train_imputed, Y_val_test_imputed = survival_imputer.fit_transform(Y_train, Y_val_test)
-                            Y_val_imputed = Y_val_test_imputed[:val_size_]
-                            Y_test_imputed = Y_val_test_imputed[val_size_:]
+                            Y_train_imputed = imputed_results["Y_train_imputed"]
+                            Y_val_imputed = imputed_results["Y_val_imputed"]
+                            Y_test_imputed = imputed_results["Y_test_imputed"]
+                        except KeyError as e:
+                            raise KeyError(
+                                f"Missing imputed results in {imputed_path}.\n"
+                                f"Details: method={args.impute_method}, config={config_name}, "
+                                f"scenario={scenario_key}, train_size={train_size_str}, repeat={rand_idx}, "
+                                f"missing key={e}"
+                            )
 
                         if args.meta_learner in ["t_learner", "x_learner"]:
                             if Y_train[W_train == 1, 1].sum() <= 1:
@@ -146,7 +142,12 @@ def main(args):
                         runtime = end_time - start_time
                         
                         # Save the model
-                        learner.save_model(checkpoint_path)
+                        ## The model by econml is too large (usually several GBs!) when saved, 
+                        ## so by default we do not save trained models
+                        if args.save_model:
+                            t_ = time.time()
+                            learner.save_model(checkpoint_path)
+                            print(f'Took {(time.time() - t_):.0f} seconds to save the model')
 
                         start_time = time.time()
                         mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
@@ -154,8 +155,13 @@ def main(args):
                         end_time = time.time()
                         inference_time = end_time - start_time
 
-                        # Evaluate base regression models on test data
+                        # Evaluate base regression models
                         base_model_eval = learner.evaluate_test(X_test, Y_test_imputed, W_test)
+                        base_model_eval_val = learner.evaluate_test(X_val, Y_val_imputed, W_val)
+
+                        # t_ = time.time()
+                        # learner.load_model(checkpoint_path)
+                        # print(f'Took {(time.time() - t_):.0f} seconds to load the model')
 
                         results_dict[config_name][scenario_key][base_model][rand_idx] = {
                             "ate_true": ate_true,
@@ -169,6 +175,7 @@ def main(args):
                             "ate_bias_val": ate_val_pred.mean_point - ate_true,
                             "ate_interval_val": ate_val_pred.conf_int_mean(),
                             "ate_statistics_val": ate_val_pred,
+                            "base_model_eval_val": base_model_eval_val,  # Store base model evaluation results
                             # test set:
                             "cate_true": cate_true_test,
                             "cate_pred": cate_test_pred,
@@ -182,8 +189,8 @@ def main(args):
 
                         print(f'\ttraining time: {runtime:.0f} seconds; inference time: {inference_time:.0f} seconds')
 
-                    with open(output_pickle_path, "wb") as f:
-                        pickle.dump(results_dict, f)
+                        with open(output_pickle_path, "wb") as f:
+                            pickle.dump(results_dict, f)
 
                     # print(f"[Info]: Finished {config_name}, {scenario_key}, {base_model}, repeat {rand_idx}. CATE_MSE: {mse_test:.4f}, ATE_pred: {ate_test_pred.mean_point:.4f}, ATE_true: {ate_true:.4f}, ATE_bias: {ate_test_pred.mean_point - ate_true:.4f}")
 
@@ -210,6 +217,18 @@ def main(args):
                     }
                     for base_model_k, metric_j_dict in avg[list(avg.keys())[0]]['base_model_eval'].items()
                 }
+                base_model_eval_performance_val = {
+                    base_model_k: 
+                    {
+                        f"{stat}_{metric_j}": func([
+                            avg[i]['base_model_eval_val'][base_model_k][metric_j] for i in range(num_repeats)
+                            if i in avg
+                        ])
+                        for metric_j in metric_j_dict
+                        for stat, func in zip(['mean', 'std'], [np.nanmean, np.nanstd])
+                    }
+                    for base_model_k, metric_j_dict in avg[list(avg.keys())[0]]['base_model_eval_val'].items()
+                }
                 results_dict[config_name][scenario_key][base_model]["average"] = {
                     # val set:
                     "mean_cate_mse_val": np.mean([avg[i]["cate_mse_val"] for i in range(num_repeats) if i in avg]),
@@ -218,17 +237,18 @@ def main(args):
                     "std_ate_pred_val": np.std([avg[i]["ate_pred_val"] for i in range(num_repeats) if i in avg]),
                     "mean_ate_bias_val": np.mean([avg[i]["ate_bias_val"] for i in range(num_repeats) if i in avg]),
                     "std_ate_bias_val": np.std([avg[i]["ate_bias_val"] for i in range(num_repeats) if i in avg]),
+                    "base_model_eval_val" : base_model_eval_performance_val,
                     # test set:
                     "mean_cate_mse": np.mean([avg[i]["cate_mse"] for i in range(num_repeats) if i in avg]),
                     "std_cate_mse": np.std([avg[i]["cate_mse"] for i in range(num_repeats) if i in avg]),
                     "mean_ate_pred": np.mean([avg[i]["ate_pred"] for i in range(num_repeats) if i in avg]),
                     "std_ate_pred": np.std([avg[i]["ate_pred"] for i in range(num_repeats) if i in avg]),
-                    "mean_ate_true": np.mean([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
-                    "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                     "mean_ate_bias": np.mean([avg[i]["ate_bias"] for i in range(num_repeats) if i in avg]),
                     "std_ate_bias": np.std([avg[i]["ate_bias"] for i in range(num_repeats) if i in avg]),
                     "base_model_eval": base_model_eval_performance,
 
+                    "mean_ate_true": np.mean([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
+                    "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                     "runtime": np.mean([avg[i]["runtime"] for i in range(num_repeats) if i in avg]),
                 }
 
@@ -245,8 +265,11 @@ if __name__ == "__main__":
     parser.add_argument("--train_size", type=float, default=5000)
     parser.add_argument("--val_size", type=float, default=2500)
     parser.add_argument("--test_size", type=float, default=2500)
-    parser.add_argument("--impute_method", type=str, default="Margin", choices=["Pseudo_obs", "Margin", "IPCW-T"])
-    parser.add_argument("--meta_learner", type=str, default="t_learner", choices=["t_learner", "s_learner", "x_learner", "dr_learner"])
-    parser.add_argument("--load_imputed", action="store_true")
+    parser.add_argument("--impute_method", type=str, default="Margin", 
+                        choices=["Pseudo_obs", "Margin", "IPCW-T"])
+    parser.add_argument("--meta_learner", type=str, default="t_learner", 
+                        choices=["t_learner", "s_learner", "x_learner", "dr_learner"])
+    parser.add_argument("--save_model", action="store_true", 
+                        help="If set, save the trained model. Default is False.")
     args = parser.parse_args()
     main(args)
