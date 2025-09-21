@@ -4,7 +4,8 @@
 # Allow traversing into subdirectories
 !*/
 
-# Keep only .py, .ipynb, and README.md files
+# Keep only certain file types
+!*.sh
 !*.py
 !*.ipynb
 !README.md

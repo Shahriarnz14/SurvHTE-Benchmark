@@ -2,6 +2,8 @@
 
 This repository contains implementations and evaluations of causal inference methods for survival data. The codebase supports various meta-learners, double machine learning approaches, and specialized survival-based methods for estimating heterogeneous treatment effects in the presence of censoring.
 
+We have `idx_split.csv` files for each dataset separately that help make the data split to be the same, so that it always has the same train/val/test split for fair comparison.
+
 ## Repository Structure
 
 ```
@@ -73,8 +75,8 @@ To set up the required environment:
 
 ```bash
 # Clone the repository
-git clone https://github.com/Shahriarnz14/SurvHTE-Bench.git
-cd SurvHTE-Bench
+git clone https://github.com/anonymous/SurvHTE-Benchmark.git
+cd SurvHTE-Benchmark
 
 # Create and activate conda environment
 conda env create -f environment.yml
@@ -92,6 +94,25 @@ The environment includes packages for:
 The repository includes various scripts to run experiments across different methods and datasets.
 
 ### Experiments with Outcome Imputation-Based Methods
+
+Imputation precomputation is required for outcome imputatio-based methods
+```bash
+# Example: Imputation precomputation for synthetic data
+python benchmark/impute_event_times_precomputations.py \
+    --dataset_name synthetic \
+    --data_dir ./data \
+    --train_size 5000 \
+    --val_size 2500 \
+    --test_size 2500
+
+# Example: Imputation precomputation for ACTG semi-synthetic data
+python benchmark/impute_event_times_precomputations.py \
+    --dataset_name actg_syn \
+    --data_dir ./data \
+    --train_size 0.5 \
+    --val_size 0.25 \
+    --test_size 0.25
+```
 
 #### Meta-learners after imputation:
 
