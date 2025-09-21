@@ -159,6 +159,9 @@ def main(args):
 
 
                     # Save the model
+                    ## The model random survival forest is too large (usually several GBs!) when saved, 
+                    ## so by default we do not save trained models for it.
+                    ## Trained DeepSurv/DeepHit models will be saved by default though.
                     if args.save_model:
                         t_ = time.time()
                         learner.save_model(checkpoint_path)
@@ -185,6 +188,7 @@ def main(args):
                         "ate_pred_val": ate_val_pred,
                         "cate_mse_val": mse_val,
                         "ate_bias_val": ate_val_pred - ate_true,
+                        "ate_statistics_val": ate_val_pred,
                         "base_model_eval_val": base_model_eval_val,  # Store base model evaluation results
                         # test set:
                         "cate_true": cate_true_test,
@@ -192,6 +196,7 @@ def main(args):
                         "ate_pred": ate_test_pred,
                         "cate_mse": mse_test,
                         "ate_bias": ate_test_pred - ate_true,
+                        "ate_statistics": ate_test_pred,
                         "base_model_eval": base_model_eval,  # Store base model evaluation results
                     }
 
