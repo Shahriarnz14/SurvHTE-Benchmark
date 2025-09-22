@@ -311,4 +311,4 @@ dependencies:
       - tables==3.9.2
       - tzlocal==5.3.1
       - xgboost==2.1.4
-prefix: /heinz-georgenas/anaconda3/envs/causal_survival_db
+prefix: /anaconda3/envs/causal_survival_db
