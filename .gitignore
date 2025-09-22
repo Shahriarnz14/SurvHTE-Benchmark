@@ -12,3 +12,12 @@
 
 # Keep the .gitignore itself
 !.gitignore
+
+# Keep the data
+!data/real/twin30.csv
+!data/real/twin180.csv
+!data/real/idx_split_twin.csv
+!data/semi-synthetic/actg_syn.csv
+!data/semi-synthetic/idx_split_actg_syn.csv
+!data/synthetic/*.h5
+!data/synthetic/idx_split.csv
