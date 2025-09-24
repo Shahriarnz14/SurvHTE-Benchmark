@@ -1,66 +1,92 @@
 # SurvHTE-Bench: A Benchmark for Heterogeneous Treatment Effect Estimation in Survival Analysis
 
-This repository contains implementations and evaluations of causal inference methods for survival data. The codebase supports various meta-learners, double machine learning approaches, and specialized survival-based methods for estimating heterogeneous treatment effects in the presence of censoring.
+This repository provides code for SurvHTE-Bench, a benchmark for estimating heterogeneous treatment effects (HTEs) from censored survival data.
+It includes implementations of imputation-based meta-learners, double machine learning (DML), survival-adapted meta-learners, and direct survival causal models.
 
-We have `idx_split.csv` files for each dataset separately that help make the data split to be the same, so that it always has the same train/val/test split for fair comparison.
+We support experiments on synthetic, semi-synthetic, and real-world datasets.
+( Note: MIMIC-related datasets cannot be shared.)
+
+For reproducibility, each dataset has an idx_split.csv file to ensure consistent train/validation/test splits across methods.
 
 ## Repository Structure
 
 ```
-├── models_causal_impute/          # Implementation of imputation-based meta-learners
-├── models_causal_survival/        # Specialized survival causal effects models
-├── models_causal_survival_meta/   # Meta-learners adapted for survival analysis
-├── real_data/                     # Real-world datasets (ACTG, Twin)
-├── results/                       # Storage for experiment results
-├── scripts/                       # Experiment runner scripts
-├── synthetic_data/                # Synthetic data generators and datasets
-├── notebooks/                     # Analysis notebooks and visualizations
-└── environment.yml                # Conda environment specification
+├── benchmark/                   # Main experiment runners
+├── models_causal_impute/        # Outcome-imputation method (imputation + meta-learners or DML methods)
+├── models_causal_survival/      # Direct survival causal models (e.g., CSF)
+├── models_causal_survival_meta/ # Survival meta-learners
+├── models_utils/                # Utilities (checkpointing, shared helpers)
+├── data/                        # Synthetic, semi-synthetic, and real datasets; generation + preprocessing
+├── results/                     # Stored results, organized by dataset and method family
+├── scripts/                     # Shell scripts to reproduce experiments
+├── notebooks/                   # Analysis and aggregation notebooks
+├── environment.yml              # Conda environment specification
+└── README.md
 ```
 
 ### Key Modules
 
-- **models_causal_impute**: Implements imputation-based meta-learners that first impute censored outcomes and then apply standard causal inference methods.
+- `models_causal_impute/`: Implements outcome-imputation approaches that first impute censored outcomes and then apply standard causal inference methods.
   - `meta_learners.py`: T-Learner, S-Learner, X-Learner, DR-Learner
   - `dml_learners.py`: Double ML, Causal Forest 
   - `survival_eval_impute.py`: Various imputation strategies (IPCW-T, Pseudo-obs, Margin)
+  - `regressor_base.py`: Regression base models
   
-- **models_causal_survival_meta**: Implements meta-learners directly adapted for survival analysis
+- `models_causal_survival_meta/`: Implements meta-learners directly adapted for survival analysis
   - `meta_learners_survival.py`: Survival T-Learner, Survival S-Learner, Matching Learner
-  - `survival_base.py`: Base class for survival models with hyperparameter tuning
+  - `survival_base.py`: Base class for survival models (RSF, DeepSurv, DeepHit) with hyperparameter tuning
+  - `concordance.py`: Survival evaluation utilities
 
-- **models_causal_survival**: Specialized causal survival models (referred as `Direct-survival CATE models` in the paper)
+- `models_causal_survival/`: Specialized causal survival models (referred as "Direct-survival CATE models" in the paper)
   - `causal_survival_forest.py`: Implementation of Causal Survival Forests
 
-## Data Sources
+- `benchmark/`: Python scripts to run experiments:
+  - `impute_event_times_precomputations.py`: Precompute event-time imputations
+  - `run_meta_learner_impute.py`: Run meta-learners with outcome imputation
+  - `run_dml_learner_impute.py`: Run DML/Causal Forest with imputation
+  - `run_meta_learner_survival.py`: Run survival-adapted meta-learners
+  - `run_causal_survival_forest.py`: Run Causal Survival Forest
+  
+
+## Data
 
 ### Synthetic Data
+Located in `data/synthetic/`:
 
-The synthetic data used in experiments is generated using the `data.py` script, which creates various scenarios with different treatment effect patterns, censoring mechanisms, and confounding structures. These datasets include:
+The synthetic datasets used in this benchmark are generated using `generate_synthetic_data.ipynb`.  
+Each `.h5` file corresponds to **one causal configuration** from the paper, and within each file are **five distinct survival scenarios**.  
+In total, there are **8 causal configurations × 5 survival scenarios = 40 synthetic datasets**.  
 
-- RCT scenarios with different treatment proportions (`RCT_0_5.h5` and `RCT_0_05.h5`)
-- Observational scenarios with confounding (`e_X.h5`)
-- Scenarios with unobserved confounders (`e_X_U.h5`)
-- Scenarios with/without overlap (`e_X_no_overlap`)
-- Scenarios with informative censoring (`e_X_info_censor.h5`, `e_X_U_info_censor.h5`, and `e_X_no_overlap_info_censor.h5`)
+The eight causal configurations include:  
+- RCT scenarios with different treatment proportions (`RCT-50.h5` and `RCT-5.h5`)  
+- Observational scenario with confounding (`OBS-CPS.h5`)  
+- Observational scenario with unobserved confounders (`OBS-UConf.h5`)  
+- Observational scenario with positivity violation (`OBS-NoPos.h5`)  
+- Informative censoring counterparts of the three observational settings (`OBS-CPS-IC.h5`, `OBS-NoPos-IC.h5`, `OBS-UConf-IC.h5`)  
 
-The generated data is stored in the `synthetic_data/` directory and includes:
-- `.h5` files containing the generated data for each scenario
-- `idx_split.csv` file with 10 different training/testing splits for reproducibility
-- `generate_synthetic_data.ipynb` notebook for generating the synthetic data for different causal configuration and survival scenarios
+Each `.h5` file contains data for all **five survival scenarios** under that causal configuration.  
+
+The `data/synthetic/` directory includes:  
+- `.h5` files for each causal configuration (each containing five survival scenarios)  
+- `idx_split.csv`: predefined train/val/test splits for reproducibility  
+- `generate_synthetic_data.ipynb`: notebook to regenerate datasets  
+
+
+### Semi-Synthetic
+Located in `data/semi-synthetic/`:  
+- **MIMIC-IV derived semi-synthetic datasets** (not redistributable)  
+- **ACTG175 semi-synthetic dataset**  
+- Preprocessing notebooks: `prepare_mimic_semi_simulated.ipynb`, `prepare_actg_synthetic.ipynb`
 
 
 ### Real Data
+Located in `data/real/`:  
+- **ACTG HIV clinical trial data** (`ACTG_175_HIV1/2/3.csv`)  
+- **Twins mortality data** (`twin30.csv`, `twin180.csv`)  
+- Preprocessing: `prepare_actg_175.py`, `prepare_twin_data.ipynb` 
 
-The real-world datasets are stored in the `real_data/` directory:
+Each dataset folder includes an `idx_split_*.csv` for reproducible splits.  
 
-1. **ACTG HIV Clinical Trial Data**: 
-   - `ACTG_175_HIV1.csv`, `ACTG_175_HIV2.csv`, `ACTG_175_HIV3.csv`: Different versions of the ACTG 175 dataset
-   - `idx_split_HIV1.csv`, `idx_split_HIV2.csv`, `idx_split_HIV3.csv`: Train/test splits
-
-2. **Twin Mortality Data**:
-   - `twin.csv`, `twin30.csv`, `twin180.csv`: Different variations of the twin mortality dataset
-   - `idx_split_twin.csv`: Train/test splits
 
 ## Installation
 
@@ -91,116 +117,63 @@ The environment includes packages for:
 
 ## Running Experiments
 
-The repository includes various scripts to run experiments across different methods and datasets.
+The repository includes various scripts to run experiments across different methods and datasets. All the experiments should be ran from the main work directory.
+
+### Precompute imputations
+Examples:
+```bash
+# Run on synthetic datasets
+python benchmark/impute_event_times_precomputations.py \
+  --dataset_name synthetic \
+  --data_dir ./data \
+  --train_size 5000 --val_size 2500 --test_size 2500
+# Run on mimic semi-synthetic datasets
+python benchmark/impute_event_times_precomputations.py \
+  --dataset_name mimic_syn \
+  --data_dir ./data \
+  --train_size 0.5 --val_size 0.25 --test_size 0.25
+```
 
 ### Experiments with Outcome Imputation-Based Methods
+Imputation precomputation is required for outcome imputation-based methods
 
-Imputation precomputation is required for outcome imputatio-based methods
+#### Meta-learners experiments after imputation:
+Examples:
 ```bash
-# Example: Imputation precomputation for synthetic data
-python benchmark/impute_event_times_precomputations.py \
-    --dataset_name synthetic \
-    --data_dir ./data \
-    --train_size 5000 \
-    --val_size 2500 \
-    --test_size 2500
-
-# Example: Imputation precomputation for ACTG semi-synthetic data
-python benchmark/impute_event_times_precomputations.py \
-    --dataset_name actg_syn \
-    --data_dir ./data \
-    --train_size 0.5 \
-    --val_size 0.25 \
-    --test_size 0.25
+# Run on synthetic datasets
+./scripts/synthetic/run_dml_learners_impute_synthetic.sh
+# Run on mimic semi-synthetic datasets
+./scripts/mimic/run_meta_learners_impute_mimic_syn.sh
 ```
 
-#### Meta-learners after imputation:
-
+#### Double ML and Causal Forest Experiments after imputation
+Examples:
 ```bash
-# Run all meta-learners with a specific imputation method on synthetic data
-./scripts/run_meta_learners_impute.sh t_learner 5000
-
-# Run a specific meta-learner with a specific imputation method on synthetic data
-./scripts/run_meta_learners_impute_single.sh t_learner 5000 Margin
-
-# Run on ACTG data
-./scripts/actg/run_meta_learners_impute_actg.sh
-
-# Run on ACTG "long" data (alternative format)
-./scripts/actgL/run_meta_learners_impute_actgL.sh
-
-# Run on Twin data
-./scripts/twin/run_meta_learners_impute_twin.sh
-```
-
-#### Double ML and Causal Forest Experiments
-
-```bash
-# Run DML learners on synthetic data
-./scripts/run_dml_learners_impute.sh double_ml 5000
-
-# Run a specific DML learner with a specific imputation method
-./scripts/run_dml_learners_impute_single.sh double_ml 5000 Pseudo_obs
-
-# Run on ACTG data
-./scripts/actg/run_dml_learners_impute_actg.sh
-
-# Run on ACTG "long" data
-./scripts/actgL/run_dml_learners_impute_actgL_cf.sh
-./scripts/actgL/run_dml_learners_impute_actgL_doubleml.sh
-
-# Run on Twin data
-./scripts/twin/run_dml_learners_impute_twin.sh
+# Run on synthetic datasets
+./scripts/synthetic/run_dml_learners_impute_synthetic.sh
+# Run on mimic semi-synthetic datasets
+./scripts/mimic/run_dml_learners_impute_mimic_syn.sh
 ```
 
 ### Survival-adapted meta-learners:
 
+Examples:
 ```bash
-# Run survival meta-learners on synthetic data
-./scripts/run_meta_learners_survival.sh s_learner_survival 5000
-
-# Run on ACTG data
-./scripts/actg/run_meta_learners_survival_actg.sh
-
-# Run on ACTG "long" data
-./scripts/actgL/run_meta_learners_survival_actgL.sh
-
-# Run on Twin data
-./scripts/twin/run_meta_learners_survival_twin.sh
+# Run on synthetic datasets
+./scripts/synthetic/run_meta_survival_learners_synthetic.sh
+# Run on mimic semi-synthetic datasets
+./scripts/mimic/run_meta_survival_learners_mimic_syn.sh
 ```
 
 ### Direct-survival CATE models:
-Use the notebooks provided to run Causal Survival Forest:
-```
-# Run on synthetic data
-notebooks/causal_survival_forest.ipynb
-
-# Run on ACTG data
-notebooks/causal_survival_forest_actg.ipynb
-notesbook/causal_survival_forest_actgL.ipynb
-
-# Run on Twin data
-notebooks/causal_survival_forest_twin.ipynb
-```
-
-## Running Individual Scripts
-
-You can also run the individual Python scripts directly for more control:
-
 ```bash
-# Meta-learners with imputation on synthetic data
-python run_meta_learner_impute.py --num_repeats 10 --train_size 5000 --test_size 5000 --meta_learner t_learner --impute_method Pseudo_obs --load_imputed --imputed_path synthetic_data/imputed_times_lookup.pkl
-
-# DML learners on real data
-python run_dml_learner_impute_actg.py --num_repeats 10 --train_size 0.75 --dml_learner causal_forest --impute_method Pseudo_obs --load_imputed --imputed_path real_data/imputed_times_lookup.pkl
+# Run on all supported datasets
+./scripts/run_csf_all_datasets.sh
 ```
-
-## Saved Imputations
-The previously ran imputation of the synthetic data is available at [imputed_times_lookup.pkl](https://drive.google.com/file/d/18LyjPWb-SOz2QmCinHGOlyzgiMGNp-WL). This file should be placed in `synthetic_data/` directory.
 
 ## Result Analysis
-
-The results of experiments are saved as pickle files in the `results/` directory, organized by dataset type (synthetic or real), model category, and specific method. These can be loaded and analyzed using the notebooks in the `notebooks/` directory.
+- All results are stored in `results/` under `{synthetic, semi-synthetic, real}/models_*`.
+- The results of experiments are saved as pickle files in the `results/` directory, organized by dataset type (synthetic or real), model category, and specific method. These can be loaded and analyzed using the notebooks in the `notebooks/` directory.
 
 ## Acknowledgments
 
