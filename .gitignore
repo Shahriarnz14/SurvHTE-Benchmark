@@ -17,6 +17,12 @@
 !data/real/twin30.csv
 !data/real/twin180.csv
 !data/real/idx_split_twin.csv
+!/data/real/ACTG_175_HIV1.csv
+!/data/real/ACTG_175_HIV2.csv
+!/data/real/ACTG_175_HIV3.csv
+!/data/real/idx_split_HIV1.csv
+!/data/real/idx_split_HIV2.csv
+!/data/real/idx_split_HIV3.csv
 !data/semi-synthetic/actg_syn.csv
 !data/semi-synthetic/idx_split_actg_syn.csv
 !data/synthetic/*.h5
