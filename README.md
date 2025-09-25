@@ -100,10 +100,6 @@ Each dataset folder includes an `idx_split_*.csv` for reproducible splits.
 To set up the required environment:
 
 ```bash
-# Clone the repository
-git clone https://github.com/anonymous/SurvHTE-Benchmark.git
-cd SurvHTE-Benchmark
-
 # Create and activate conda environment
 conda env create -f environment.yml
 conda activate causal_survival_db
