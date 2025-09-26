@@ -21,16 +21,16 @@ for meta in "${META_LEARNERS[@]}"; do
 
     CMD=(
       python benchmark/run_meta_learner_survival.py
-        -num_repeats ${NUM_REPEATS} \
+        --num_repeats ${NUM_REPEATS} \
         --dataset_name ${DATASET} \
         --data_dir ${DATA_DIR} \
         --result_dir ${RESULT_DIR} \
         --train_size ${TRAIN_SIZE} \
         --val_size ${VAL_SIZE} \
         --test_size ${TEST_SIZE} \
-        --survival_metric mean
-        --meta_learner "$meta"
-        --base_survival_model "$model"
+        --survival_metric mean \
+        --meta_learner "$meta" \
+        --base_survival_model "$model" \
         --num_matches 5
     )
 
