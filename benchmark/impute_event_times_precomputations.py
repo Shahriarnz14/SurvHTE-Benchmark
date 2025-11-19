@@ -16,9 +16,14 @@ def main(args):
     dataset_name = args.dataset_name
     dataset_type = (
         "synthetic" if dataset_name == "synthetic"
-        else "semi-synthetic" if dataset_name in ["mimic_syn", "actg_syn"]
+        else "semi-synthetic" if dataset_name in ["mimic_syn", "mimic_syn_2", "actg_syn"]
         else "real"
     )
+    if args.horizon is None:
+        if args.target == "rmst":
+            args.horizon = 1.0
+        elif args.target == "survival_prob":
+            args.horizon = 0.5
     train_size = args.train_size
     val_size = args.val_size
     test_size = args.test_size
@@ -130,5 +135,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_size", type=float, default=5000)
     parser.add_argument("--val_size", type=float, default=2500)
     parser.add_argument("--test_size", type=float, default=2500)
+    parser.add_argument("--target", type=str, choices=["rmst", "survival_prob"], default='rmst')
+    parser.add_argument("--horizon", type=float, default=None)
     args = parser.parse_args()
     main(args)

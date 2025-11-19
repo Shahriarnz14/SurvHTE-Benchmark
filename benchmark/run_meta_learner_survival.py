@@ -19,7 +19,7 @@ def main(args):
     dataset_name = args.dataset_name
     dataset_type = (
         "synthetic" if dataset_name == "synthetic"
-        else "semi-synthetic" if dataset_name in ["mimic_syn", "actg_syn"]
+        else "semi-synthetic" if dataset_name in ["mimic_syn", "mimic_syn_2", "actg_syn"]
         else "real"
     )
     train_size = args.train_size
@@ -33,6 +33,8 @@ def main(args):
 
     output_pickle_path = os.path.join(result_dir, dataset_type, f"models_causal_survival_meta/{args.meta_learner}/")
     output_pickle_path += f"{dataset_name}_{args.meta_learner}_{args.base_survival_model}_repeats_{args.num_repeats}_train_{train_size_str}.pkl"
+    if args.exp_name != "":
+        output_pickle_path = output_pickle_path.replace(".pkl", f"_{args.exp_name}.pkl")
     os.makedirs(os.path.dirname(output_pickle_path), exist_ok=True)
     print("Output results path:", output_pickle_path)
 
@@ -82,16 +84,43 @@ def main(args):
                 dataset_name=dataset_name,
                 train_size=train_size,
                 val_size=val_size,
-                test_size=test_size
+                test_size=test_size,
+                include_surv_probs=args.include_surv_probs
             )
             if scenario_key not in results_dict[config_name]:
                 results_dict[config_name][scenario_key] = {}
 
 
             for rand_idx in range(num_repeats):
-                X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
-                X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
-                X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                # X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
+                # X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
+                # X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                train_tuple = split_dict[rand_idx]['train']
+                if len(train_tuple) == 4:
+                    X_train, W_train, Y_train, cate_true_train = train_tuple
+                    cate_true_surv_train = None
+                elif len(train_tuple) == 5:
+                    X_train, W_train, Y_train, cate_true_train, cate_true_surv_train = train_tuple
+                else:
+                    raise ValueError("Unexpected train tuple length: expected 4 or 5 elements.")
+
+                val_tuple = split_dict[rand_idx]['val']
+                if len(val_tuple) == 4:
+                    X_val, W_val, Y_val, cate_true_val = val_tuple
+                    cate_true_surv_val = None
+                elif len(val_tuple) == 5:
+                    X_val, W_val, Y_val, cate_true_val, cate_true_surv_val = val_tuple
+                else:
+                    raise ValueError("Unexpected val tuple length: expected 4 or 5 elements.")
+
+                test_tuple = split_dict[rand_idx]['test']
+                if len(test_tuple) == 4:
+                    X_test, W_test, Y_test, cate_true_test = test_tuple
+                    cate_true_surv_test = None
+                elif len(test_tuple) == 5:
+                    X_test, W_test, Y_test, cate_true_test, cate_true_surv_test = test_tuple
+                else:
+                    raise ValueError("Unexpected test tuple length: expected 4 or 5 elements.")
                 val_size_ = Y_val.shape[0]
                 Y_val_test = np.vstack((Y_val, Y_test))
                 
@@ -175,10 +204,43 @@ def main(args):
                     # Evaluate causal effect predictions
                     mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
                     mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
+
+                    # Evaluate CATE based on survival probabilities at 25/50/75 percentiles
+                    cate_surv_test = None
+                    cate_surv_val = None
+                    mse_surv_test = None
+                    mse_surv_val = None
+
+                    if args.include_surv_probs:
+                        horizons = np.array(
+                            [event_time_25pct, event_time_50pct, event_time_75pct],
+                            dtype=float,
+                        )
+
+                        # Predicted CATE for survival probability (test & val)
+                        cate_time_test_surv, cate_surv_test = learner.predict_cate_surv_probs(
+                            X_test, horizons=horizons
+                        )
+                        cate_time_val_surv, cate_surv_val = learner.predict_cate_surv_probs(
+                            X_val, horizons=horizons
+                        )
+
+                        # Using ground-truth survival prob CATE, compute MSE per horizon
+                        if (cate_true_surv_test is not None) and (cate_surv_test is not None):
+                            # shape: (n_horizons,)
+                            mse_surv_test = np.mean(
+                                (cate_true_surv_test - cate_surv_test) ** 2, axis=0
+                            )
+                        if (cate_true_surv_val is not None) and (cate_surv_val is not None):
+                            mse_surv_val = np.mean(
+                                (cate_true_surv_val - cate_surv_val) ** 2, axis=0
+                            )
+
+
                     end_time = time.time()
                     inference_time = end_time - start_time
 
-                    results_dict[config_name][scenario_key][rand_idx] = {
+                    entry = {
                         "ate_true": ate_true,
                         "runtime": runtime,
                         "inference_time": inference_time,
@@ -199,6 +261,25 @@ def main(args):
                         "ate_statistics": ate_test_pred,
                         "base_model_eval": base_model_eval,  # Store base model evaluation results
                     }
+
+                    if args.include_surv_probs and (cate_surv_test is not None) and (cate_surv_val is not None):
+                        entry.update({
+                            "surv_horizons": np.array(
+                                [event_time_25pct, event_time_50pct, event_time_75pct],
+                                dtype=float,
+                            ),
+                            # ground-truth survival CATE (if provided)
+                            "cate_surv_true_val": cate_true_surv_val,
+                            "cate_surv_true": cate_true_surv_test,
+                            # predicted survival CATE
+                            "cate_surv_pred_val": cate_surv_val,   # shape (n_val, 3)
+                            "cate_surv_pred": cate_surv_test,       # shape (n_test, 3)
+                            # MSE per horizon
+                            "cate_surv_mse_val": mse_surv_val,      # shape (3,) or None
+                            "cate_surv_mse": mse_surv_test,         # shape (3,) or None
+                        })
+
+                    results_dict[config_name][scenario_key][rand_idx] = entry
 
                     print(f'\ttraining time: {runtime:.0f} seconds; inference time: {inference_time:.0f} seconds')
 
@@ -241,7 +322,7 @@ def main(args):
                                                 for base_model_k, metric_j_dict in avg[list(avg.keys())[0]]['base_model_eval_val'].items()
                                             }
                 
-            results_dict[config_name][scenario_key]["average"] = {
+            avg_dict = {
                 # val set:
                 "mean_cate_mse_val": np.mean([avg[i]["cate_mse_val"] for i in range(num_repeats) if i in avg]),
                 "std_cate_mse_val": np.std([avg[i]["cate_mse_val"] for i in range(num_repeats) if i in avg]),
@@ -263,7 +344,50 @@ def main(args):
                 "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                 "runtime": np.mean([avg[i]["runtime"] for i in range(num_repeats) if i in avg]),
                 }
+            
+            mean_cate_surv_mse_val = None
+            std_cate_surv_mse_val = None
+            mean_cate_surv_mse = None
+            std_cate_surv_mse = None
+            surv_horizons_avg = None
 
+            if args.include_surv_probs:
+                # collect per-repeat MSE vectors where available
+                mse_surv_val_list = [
+                    avg[i]["cate_surv_mse_val"]
+                    for i in range(num_repeats)
+                    if i in avg and ("cate_surv_mse_val" in avg[i]) and (avg[i]["cate_surv_mse_val"] is not None)
+                ]
+                mse_surv_test_list = [
+                    avg[i]["cate_surv_mse"]
+                    for i in range(num_repeats)
+                    if i in avg and ("cate_surv_mse" in avg[i]) and (avg[i]["cate_surv_mse"] is not None)
+                ]
+                horizons_list = [
+                    avg[i]["surv_horizons"]
+                    for i in range(num_repeats)
+                    if i in avg and ("surv_horizons" in avg[i])
+                ]
+
+                if len(mse_surv_val_list) > 0:
+                    mean_cate_surv_mse_val = np.nanmean(mse_surv_val_list, axis=0)
+                    std_cate_surv_mse_val = np.nanstd(mse_surv_val_list, axis=0)
+                if len(mse_surv_test_list) > 0:
+                    mean_cate_surv_mse = np.nanmean(mse_surv_test_list, axis=0)
+                    std_cate_surv_mse = np.nanstd(mse_surv_test_list, axis=0)
+                if len(horizons_list) > 0:
+                    surv_horizons_avg = horizons_list[0]
+            
+            if args.include_surv_probs and (mean_cate_surv_mse is not None):
+                avg_dict.update({
+                    "surv_horizons": surv_horizons_avg,           # (3,)
+                    "mean_cate_surv_mse_val": mean_cate_surv_mse_val,
+                    "std_cate_surv_mse_val": std_cate_surv_mse_val,
+                    "mean_cate_surv_mse": mean_cate_surv_mse,
+                    "std_cate_surv_mse": std_cate_surv_mse,
+                })
+            
+            results_dict[config_name][scenario_key]["average"] = avg_dict
             with open(output_pickle_path, "wb") as f:
                 pickle.dump(results_dict, f)
 
@@ -277,7 +401,9 @@ if __name__ == "__main__":
     parser.add_argument("--train_size", type=float, default=5000)
     parser.add_argument("--val_size", type=float, default=2500)
     parser.add_argument("--test_size", type=float, default=2500)
-    parser.add_argument("--survival_metric", type=str, default="mean", choices=["median", "mean"])
+    parser.add_argument("--survival_metric", type=str, default="mean", choices=["median", "mean"]) # TODO: change the arg name to be `target`?
+    parser.add_argument("--max_time", type=float, default=None, help="max time horizon for RMST calculation. None means using the maximum observed time.")
+    parser.add_argument("--include_surv_probs", type=bool, default=False, help="Whether to include survival probabilities as estimands.")
     parser.add_argument("--meta_learner", type=str, default="t_learner_survival", 
                         choices=["t_learner_survival", "s_learner_survival", "matching_learner_survival"])
     parser.add_argument("--base_survival_model", type=str, default="RandomSurvivalForest",
@@ -285,5 +411,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_matches", type=int, default=5, help="Number of matches for matching learner")
     parser.add_argument("--save_model", action="store_true", 
                         help="If set, save the trained model. Default is False.")
+    parser.add_argument("--exp_name", type=str, default="", help="Experiment name")
     args = parser.parse_args()
     main(args)

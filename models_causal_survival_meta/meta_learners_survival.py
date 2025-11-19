@@ -359,6 +359,43 @@ class TLearnerSurvival(BaseMetaLearnerSurvival):
         mu1 = self.models['treated'].predict_metric(X, metric=self.metric, max_time=self.max_time)
         mu0 = self.models['control'].predict_metric(X, metric=self.metric, max_time=self.max_time)
         return mu1 - mu0
+    
+    def predict_cate_surv_probs(self, X, horizons, W=None):
+        """
+        Predict CATE based on survival probabilities at given time horizons.
+
+        Parameters
+        ----------
+        X : np.ndarray
+            Covariates for which to predict.
+        horizons : array-like
+            Time horizons at which to compute survival probabilities.
+
+        Returns
+        -------
+        cate_time : np.ndarray, shape (n_samples,)
+            CATE for the main metric (median or mean survival) at each X (same as predict_cate).
+        cate_surv_probs : np.ndarray, shape (n_samples, n_horizons)
+            CATE for survival probability at each horizon:  S1(t) - S0(t).
+        """
+        # treated potential outomes model
+        mu1_time, surv1 = self.models['treated'].predict_metric(
+            X, metric=self.metric, max_time=self.max_time,
+            include_surv_probs=True,
+            horizons=horizons,
+        )
+
+        # control potential outcomes model
+        mu0_time, surv0 = self.models['control'].predict_metric(
+            X, metric=self.metric, max_time=self.max_time,
+            include_surv_probs=True,
+            horizons=horizons,
+        )
+
+        cate_time = mu1_time - mu0_time
+        cate_surv_probs = surv1 - surv0  # shape: (n_samples, n_horizons)
+
+        return cate_time, cate_surv_probs
 
 
 class SLearnerSurvival(BaseMetaLearnerSurvival):
@@ -388,6 +425,51 @@ class SLearnerSurvival(BaseMetaLearnerSurvival):
         mu0 = self.models['s'].predict_metric(X0, metric=self.metric, max_time=self.max_time)
         mu1 = self.models['s'].predict_metric(X1, metric=self.metric, max_time=self.max_time)
         return mu1 - mu0
+    
+    def predict_cate_surv_probs(self, X, horizons, W=None):
+        """
+        Predict CATE based on survival probabilities at given time horizons
+        using the S-learner (treatment as a feature).
+
+        Parameters
+        ----------
+        X : np.ndarray, shape (n_samples, n_features)
+            Covariates.
+        horizons : array-like
+            Time horizons at which to compute survival probabilities.
+        W : np.ndarray or None
+            Not used for S-learner (present for API symmetry).
+
+        Returns
+        -------
+        cate_time : np.ndarray, shape (n_samples,)
+            CATE for the main metric (median or mean survival).
+        cate_surv_probs : np.ndarray, shape (n_samples, n_horizons)
+            CATE for survival probabilities at each horizon: S1(t) - S0(t).
+        """
+        # Potential outcomes under control (W=0) and treatment (W=1)
+        X0 = np.column_stack((X, np.zeros(len(X))))
+        X1 = np.column_stack((X, np.ones(len(X))))
+
+        mu0_time, surv0 = self.models['s'].predict_metric(
+            X0,
+            metric=self.metric,
+            max_time=self.max_time,
+            include_surv_probs=True,
+            horizons=horizons,
+        )
+        mu1_time, surv1 = self.models['s'].predict_metric(
+            X1,
+            metric=self.metric,
+            max_time=self.max_time,
+            include_surv_probs=True,
+            horizons=horizons,
+        )
+
+        cate_time = mu1_time - mu0_time
+        cate_surv_probs = surv1 - surv0  # shape: (n_samples, n_horizons)
+
+        return cate_time, cate_surv_probs
 
 
 class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
@@ -429,6 +511,52 @@ class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
         opposite_outcomes = self._get_opposite_treatment_outcomes(X, W)
         cate = (true_outcomes - opposite_outcomes) * (2 * W - 1)
         return cate
+    
+    def predict_cate_surv_probs(self, X, horizons, W=None):
+        """
+        Predict CATE based on survival probabilities at given time horizons
+        using Matching-learner.
+
+        Parameters
+        ----------
+        X : np.ndarray, shape (n_samples, n_features)
+            Covariates.
+        horizons : array-like
+            Time horizons at which to compute survival probabilities.
+        W : np.ndarray
+            Observed treatment assignments (0/1) for each sample.
+
+        Returns
+        -------
+        cate_time : np.ndarray, shape (n_samples,)
+            CATE for the main metric (median or mean survival) using matching.
+        cate_surv_probs : np.ndarray, shape (n_samples, n_horizons)
+            CATE for survival probabilities at each horizon, using matching:
+            (factual - matched-counterfactual) * (2W - 1).
+        """
+        if W is None:
+            raise ValueError("W must be provided for MatchingLearnerSurvival.predict_cate_surv_probs.")
+
+        W = np.asarray(W).astype(int)
+        X_aug = np.column_stack((X, W))
+
+        # Factual potential outcome (time metric + survival probs)
+        true_time, true_surv = self.models['model'].predict_metric(
+            X_aug,
+            metric=self.metric,
+            max_time=self.max_time,
+            include_surv_probs=True,
+            horizons=horizons,
+        )
+
+        # Counterfactual outcome via matching
+        opp_time, opp_surv = self._get_opposite_treatment_outcomes_surv(X, W, horizons)
+
+        # Symmetrize to always be tau(x) = Y(1) - Y(0)
+        cate_time = (true_time - opp_time) * (2 * W - 1)
+        cate_surv = (true_surv - opp_surv) * (2 * W.reshape(-1, 1) - 1)
+
+        return cate_time, cate_surv
 
     def _get_opposite_treatment_outcomes(self, X, W):
         distances = cdist(X, self.X_train, metric=self.distance_metric)
@@ -461,3 +589,56 @@ class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
             opposite_outcomes[i] = np.mean(match_outcomes)
 
         return opposite_outcomes
+    
+    def _get_opposite_treatment_outcomes_surv(self, X, W, horizons):
+        """
+        For each sample i, estimate the counterfactual time metric and
+        survival probabilities at `horizons` using nearest neighbors
+        with the opposite treatment.
+        """
+        distances = cdist(X, self.X_train, metric=self.distance_metric)
+        n = X.shape[0]
+        n_horizons = len(horizons)
+
+        opp_time = np.zeros(n)
+        opp_surv = np.zeros((n, n_horizons))
+
+        for i in range(n):
+            opposite_treatment = 1 - W[i]
+            match_indices = np.where(self.W_train == opposite_treatment)[0]
+
+            if match_indices.size == 0:
+                # Fallback: no opposite-treatment units: predict directly using model
+                X_aug_fallback = np.column_stack((X[i:i+1], np.full(1, opposite_treatment)))
+                t_fallback, surv_fallback = self.models['model'].predict_metric(
+                    X_aug_fallback,
+                    metric=self.metric,
+                    max_time=self.max_time,
+                    include_surv_probs=True,
+                    horizons=horizons,
+                )
+                opp_time[i] = t_fallback[0]
+                opp_surv[i, :] = surv_fallback[0, :]
+                continue
+
+            match_distances = distances[i, match_indices]
+            k = min(self.num_matches, match_indices.size)
+            neighbors = match_indices[np.argsort(match_distances)[:k]]
+
+            X_aug_matches = np.column_stack((
+                self.X_train[neighbors],
+                np.full(k, opposite_treatment)
+            ))
+
+            match_time, match_surv = self.models['model'].predict_metric(
+                X_aug_matches,
+                metric=self.metric,
+                max_time=self.max_time,
+                include_surv_probs=True,
+                horizons=horizons,
+            )
+            # Average over matched neighbors
+            opp_time[i] = match_time.mean()
+            opp_surv[i, :] = match_surv.mean(axis=0)
+
+        return opp_time, opp_surv

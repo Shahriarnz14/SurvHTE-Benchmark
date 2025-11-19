@@ -17,7 +17,7 @@ def main(args):
     dataset_name = args.dataset_name
     dataset_type = (
         "synthetic" if dataset_name == "synthetic"
-        else "semi-synthetic" if dataset_name in ["mimic_syn", "actg_syn"]
+        else "semi-synthetic" if dataset_name in ["mimic_syn", "mimic_syn_2", "actg_syn"]
         else "real"
     )
     train_size = args.train_size

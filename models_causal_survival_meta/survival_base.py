@@ -503,25 +503,36 @@ class SurvivalModelBase:
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
         
-    def predict_metric(self, X, metric="median", max_time=np.inf):
+    def predict_metric(self, X, metric="median", max_time=np.inf, include_surv_probs=False, horizons=None):
         """
         Predict a summary metric from the survival curve.
+        TODO: change the name of the args from `metric` to `target`
         
         Parameters:
         - X (np.ndarray): Features
         - metric (str): 'median' or 'mean'
         - max_time (float): Maximum time for restricted mean survival time
+        - include_surv_probs (bool): Whether to include survival probabilities at specified horizons
+        - horizons (list or np.ndarray): Time horizons for survival probabilities
         
         Returns:
-        - np.ndarray: Predicted metric values
+        - np.ndarray or tuple: Predicted metric values, optionally with survival probabilities
         """
         survival_curves = self.predict_survival_curve(X)
         times = survival_curves.index.to_numpy()
         
         if metric == "median":
-            return self._compute_median_survival_times(survival_curves, times)
+            median_times = self._compute_median_survival_times(survival_curves, times)
+            if include_surv_probs and horizons is not None:
+                surv_probs = self._compute_survival_prob_times(survival_curves, times, horizons)
+                return median_times, surv_probs
+            return median_times
         elif metric == "mean":
-            return self._compute_restricted_mean_survival_times(survival_curves, times, max_time=max_time)
+            mean_times = self._compute_restricted_mean_survival_times(survival_curves, times, max_time=max_time)
+            if include_surv_probs and horizons is not None:
+                surv_probs = self._compute_survival_prob_times(survival_curves, times, horizons)
+                return mean_times, surv_probs
+            return mean_times
         else:
             raise ValueError(f"Unsupported metric: {metric}. Supported metrics: ['median', 'mean']")
 
@@ -549,6 +560,25 @@ class SurvivalModelBase:
                 median_survival_times.append(
                     times[np.searchsorted(-curve, [-.5])[0]])
         return np.array(median_survival_times)
+
+    def _compute_survival_prob_times(self, survival_curves, times, horizons):
+        """
+        Calculate survival probabilities at specified time horizons.
+
+        `survival_curves`: predicted survival surves, shape (n_times, n_samples)
+        `times`: time index for the survival curves, shape (n_times,)
+        `horizons`: time horizons that require survival probabilities, shape (n_horizons,)
+
+        return: np.ndarray: Survival probabilities at each horizon for each sample, shape (n_samples, n_horizons)
+        """
+        results = np.empty((len(horizons), survival_curves.shape[1]))
+        for i in range(survival_curves.shape[1]):
+            results[:, i] = np.interp(
+                horizons,
+                times,
+                survival_curves.iloc[:, i]
+            )
+        return results.T
     
     def save_model(self, filepath):
         """Save the survival model."""

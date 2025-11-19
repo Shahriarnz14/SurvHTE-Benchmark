@@ -231,7 +231,47 @@ class SyntheticDataGenerator:
                 'metadata': self._meta}
 
 
-def load_data(dataset_name='synthetic', data_dir='./data'):
+def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizon=1.0):
+    """
+    target: 'rmst' or 'survival_prob'
+
+    horizon:
+        Must be in (0, 1].
+
+        If target == 'rmst':
+            - any numeric in (0, 1] is allowed
+            - 1.0 => use max observed time
+            - 0.75 => use RMST at median survival time
+
+        If target == 'survival_prob':
+            - must be one of {0.25, 0.5, 0.75}
+    """
+    # ---- Validate target ----
+    if target not in {"rmst", "survival_prob"}:
+        raise ValueError(f"Invalid target={target!r}. Must be 'rmst' or 'survival_prob'.")
+
+    # ---- Validate horizon numeric ----
+    if not isinstance(horizon, (int, float)):
+        raise TypeError(
+            f"horizon must be a numeric value in (0, 1]. Got {type(horizon).__name__}."
+        )
+
+    # ---- Validate horizon within (0,1] ----
+    if not (0 < horizon <= 1):
+        raise ValueError(
+            f"horizon must be in the interval (0, 1]. Got horizon={horizon}."
+        )
+
+    # ---- Additional restriction for survival_prob ----
+    if target == "survival_prob":
+        allowed = {0.25, 0.5, 0.75}
+        if horizon not in allowed:
+            raise ValueError(
+                f"When target='survival_prob', horizon must be one of {allowed}. "
+                f"Got horizon={horizon}."
+            )
+
+
     experiment_setups = {}
     experiment_repeat_setups = None
     if dataset_name == 'synthetic':
@@ -363,6 +403,65 @@ def load_data(dataset_name='synthetic', data_dir='./data'):
                   "summary": summary_characteristics}
             scenario_dict = {'Scenario_A': result} # just one scenario 
             experiment_setups[config] = scenario_dict
+    elif dataset_name == 'mimic_syn_2': # (additional mimic dataset added during rebuttal)
+        # TODO: 1. modify/combine with mimic_syn?
+        #       2. decide whether to modify data based on horizon here or in the estimator?
+        idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_mimic_syn.csv')
+        experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
+        for config in ["mimic_pslin_tclin",
+                        "mimic_pslin_tcnlin",
+                        "mimic_psnlin_tclin",
+                        "mimic_psnlin_tcnlin",
+                            ]:
+            data_path = os.path.join(data_dir, 'semi-synthetic', f'{config}.csv')
+            df = pd.read_csv(data_path)
+            if target == 'rmst':
+                if horizon is not None:
+                    time_at_horizon = df['T'].quantile(horizon)
+                    df['T1'] = np.minimum(df['T1'], time_at_horizon)
+                    df['T0'] = np.minimum(df['T0'], time_at_horizon)
+                potential_outcome_cols = ['T0', 'T1']
+            elif target == 'survival_prob':
+                if horizon is None:
+                    horizon = 0.5 # default to median observed time
+                if not float(horizon).is_integer():
+                    raise ValueError(f"horizon must be an integer, got {horizon}")
+                horizon = int(horizon)
+                potential_outcome_cols = [f'p_surv_t{horizon}_w0', f'p_surv_t{horizon}_w1']
+            else:
+                raise ValueError(f"Unsupported target {target}")
+            df['true_cate'] = df[potential_outcome_cols[1]] - df[potential_outcome_cols[0]]
+            summary_characteristics = {
+                # rates
+                'censoring_rate': 1-df['event'].mean(),
+                'treatment_rate': df['W'].mean(),
+
+                # event times
+                'event_time_min': df['T'].min(),
+                'event_time_25pct': df['T'].quantile(0.25),
+                'event_time_median': df['T'].median(),
+                'event_time_75pct': df['T'].quantile(0.75),
+                'event_time_max': df['T'].max(),
+                'event_time_mean': df['T'].mean(),
+                'event_time_std': df['T'].std(),
+
+                # censoring times
+                'censoring_time_min': df['C'].min(),
+                'censoring_time_median': df['C'].median(),
+                'censoring_time_max': df['C'].max(),
+                'censoring_time_mean': df['C'].mean(),
+                'censoring_time_std': df['C'].std(),
+
+                # treatment effects
+                    'ate': (df[potential_outcome_cols[1]]-df[potential_outcome_cols[0]]).mean(),
+                    'cate_min': (df[potential_outcome_cols[1]]-df[potential_outcome_cols[0]]).min(),
+                    'cate_median': (df[potential_outcome_cols[1]]-df[potential_outcome_cols[0]]).median(),
+                    'cate_max': (df[potential_outcome_cols[1]]-df[potential_outcome_cols[0]]).max()
+            }
+            result = {"dataset": df, 
+                  "summary": summary_characteristics}
+            scenario_dict = {'Scenario_A': result} # just one scenario 
+            experiment_setups[config] = scenario_dict
     elif dataset_name == 'twin':
         idx_split_file_path = os.path.join(data_dir, 'real', 'idx_split_twin.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
@@ -412,8 +511,23 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
                        dataset_name='synthetic',
                        train_size=5000,
                        val_size=2500,
-                       test_size=2500):
+                       test_size=2500,
+                       target='rmst', horizon=1.0,
+                       include_surv_probs=False):
     """
+    target: 'rmst' or 'survival_prob'
+
+    horizon:
+        Must be in (0, 1].
+
+        If target == 'rmst':
+            - any numeric in (0, 1] is allowed
+            - 1.0 => use max observed time
+            - 0.75 => use RMST at median survival time
+
+        If target == 'survival_prob':
+            - must be one of {0.25, 0.5, 0.75}
+            
     Returns dictionary:
         split_results[repeat_id] = {
             "train": (X_train, W_train, Y_train, cate_train_true),
@@ -421,6 +535,32 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
             "test":  (X_test,  W_test,  Y_test,  cate_test_true)
         }
     """
+    # ---- Validate target ----
+    if target not in {"rmst", "survival_prob"}:
+        raise ValueError(f"Invalid target={target!r}. Must be 'rmst' or 'survival_prob'.")
+
+    # ---- Validate horizon numeric ----
+    if not isinstance(horizon, (int, float)):
+        raise TypeError(
+            f"horizon must be a numeric value in (0, 1]. Got {type(horizon).__name__}."
+        )
+
+    # ---- Validate horizon within (0,1] ----
+    if not (0 < horizon <= 1):
+        raise ValueError(
+            f"horizon must be in the interval (0, 1]. Got horizon={horizon}."
+        )
+
+    # ---- Additional restriction for survival_prob ----
+    if target == "survival_prob":
+        allowed = {0.25, 0.5, 0.75}
+        if horizon not in allowed:
+            raise ValueError(
+                f"When target='survival_prob', horizon must be one of {allowed}. "
+                f"Got horizon={horizon}."
+            )
+
+        
     # --- train/val/test size ---
     if all(0 <= x <= 1 for x in (train_size, val_size, test_size)):
         assert math.isclose(train_size + val_size + test_size, 1.0,
@@ -454,6 +594,21 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         cate_true_col = 'cate_base'
         idx_col = 'id'
     elif dataset_name == 'mimic_syn':
+        X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
+                    'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
+                    'Urea nitrogen', 'Hematocrit', 'Hemoglobin', 'MCH', 'MCHC', 'MCV',
+                    'Platelet count', 'RDW', 'Red blood cells', 'White blood cells',
+                    'Admission age', 'Sex:Male', 'Race:Black', 'Race:Hispanic',
+                    'Race:Other', 'Race:White', 'Insurance:Medicare', 'Insurance:Other',
+                    'Marital status:Married', 'Marital status:Single',
+                    'Marital status:Widowed', 'Direct emergency:Yes', 'Night admission:Yes',
+                    'Previous admission this month:Yes', 'Admissions number:2',
+                    'Admissions number:3+']
+        W_col = 'W'
+        y_cols = ['observed_time', 'event']
+        cate_true_col = 'true_cate'
+        idx_col = 'idx'
+    elif dataset_name == 'mimic_syn_2':
         X_cols = ['Anion gap', 'Bicarbonate', 'Calcium total', 'Chloride', 'Creatinine',
                     'Glucose', 'Magnesium', 'Phosphate', 'Potassium', 'Sodium',
                     'Urea nitrogen', 'Hematocrit', 'Hemoglobin', 'MCH', 'MCHC', 'MCV',
@@ -509,6 +664,21 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
                 cate_true = df[cate_true_col].to_numpy()
             else:
                 cate_true = (df["T1"] - df["T0"]).to_numpy()
+
+            # ---- survival-probability CATE at t25, t50, t75 (if columns exist) ----
+            surv_cols = [
+                "p_surv_t25_w0", "p_surv_t50_w0", "p_surv_t75_w0",
+                "p_surv_t25_w1", "p_surv_t50_w1", "p_surv_t75_w1",
+            ]
+            has_surv = all(col in df.columns for col in surv_cols)
+            if has_surv and include_surv_probs:
+                # shape: (n_samples, 3) -> [t25, t50, t75]
+                cate_true_surv = np.column_stack([
+                    df["p_surv_t25_w1"].to_numpy() - df["p_surv_t25_w0"].to_numpy(),
+                    df["p_surv_t50_w1"].to_numpy() - df["p_surv_t50_w0"].to_numpy(),
+                    df["p_surv_t75_w1"].to_numpy() - df["p_surv_t75_w0"].to_numpy(),
+                ])
+                return X, W, Y, cate_true, cate_true_surv
             return X, W, Y, cate_true
         
         split_results[rand_idx] = {
