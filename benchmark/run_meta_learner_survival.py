@@ -403,7 +403,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_size", type=float, default=2500)
     parser.add_argument("--survival_metric", type=str, default="mean", choices=["median", "mean"]) # TODO: change the arg name to be `target`?
     parser.add_argument("--max_time", type=float, default=None, help="max time horizon for RMST calculation. None means using the maximum observed time.")
-    parser.add_argument("--include_surv_probs", type=bool, default=False, help="Whether to include survival probabilities as estimands.")
+    parser.add_argument("--include_surv_probs", action="store_true", help="If set, include survival probabilities as estimands.")
     parser.add_argument("--meta_learner", type=str, default="t_learner_survival", 
                         choices=["t_learner_survival", "s_learner_survival", "matching_learner_survival"])
     parser.add_argument("--base_survival_model", type=str, default="RandomSurvivalForest",
