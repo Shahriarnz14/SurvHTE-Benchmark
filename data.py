@@ -330,6 +330,11 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_actg_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
         df = pd.read_csv(data_path)
+
+        time_at_med_horizon = df['T'].quantile(0.5)
+        T1_med = np.minimum(df['T1'], time_at_med_horizon)
+        T0_med = np.minimum(df['T0'], time_at_med_horizon)
+
         summary_characteristics = {
             # rates
             'censoring_rate': 1-df['event'].mean(),
@@ -355,7 +360,29 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
             'ate': (df['T1']-df['T0']).mean(),
             'cate_min': (df['T1']-df['T0']).min(),
             'cate_median': (df['T1']-df['T0']).median(),
-            'cate_max': (df['T1']-df['T0']).max()
+            'cate_max': (df['T1']-df['T0']).max(),
+
+            # treatment effects median horizon
+            'ate_med_horizon': (T1_med-T0_med).mean(),
+            'cate_min_med_horizon': (T1_med-T0_med).min(),
+            'cate_median_med_horizon': (T1_med-T0_med).median(),
+            'cate_max_med_horizon': (T1_med-T0_med).max(),
+
+            # probabilities at fixed horizons
+            'ate_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).mean(),
+            'cate_min_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).min(),
+            'cate_median_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).median(),
+            'cate_max_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).max(),
+
+            'ate_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).mean(),
+            'cate_min_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).min(),
+            'cate_median_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).median(),
+            'cate_max_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).max(),
+
+            'ate_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).mean(),
+            'cate_min_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).min(),
+            'cate_median_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).median(),
+            'cate_max_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).max(),
         }
         result = {"dataset": df, 
                   "summary": summary_characteristics}
@@ -364,14 +391,23 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
     elif dataset_name == 'mimic_syn':
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_mimic_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
-        for config in ["mimic_1_syn",
-                        "mimic_2_syn",
-                        "mimic_3_syn",
-                        "mimic_4_syn",
-                        "mimic_5_syn",
+        for config in [ "mimic_1_syn_with_surv_probs",
+                        "mimic_2_syn_with_surv_probs",
+                        "mimic_3_syn_with_surv_probs",
+                        "mimic_4_syn_with_surv_probs",
+                        "mimic_5_syn_with_surv_probs",
+                        "mimic_pslin_tclin",
+                        "mimic_pslin_tcnlin",
+                        "mimic_psnlin_tclin",
+                        "mimic_psnlin_tcnlin"
                             ]:
             data_path = os.path.join(data_dir, 'semi-synthetic', f'{config}.csv')
             df = pd.read_csv(data_path)
+
+            time_at_med_horizon = df['T'].quantile(0.5)
+            T1_med = np.minimum(df['T1'], time_at_med_horizon)
+            T0_med = np.minimum(df['T0'], time_at_med_horizon)
+
             summary_characteristics = {
                 # rates
                 'censoring_rate': 1-df['event'].mean(),
@@ -397,7 +433,29 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
                 'ate': (df['T1']-df['T0']).mean(),
                 'cate_min': (df['T1']-df['T0']).min(),
                 'cate_median': (df['T1']-df['T0']).median(),
-                'cate_max': (df['T1']-df['T0']).max()
+                'cate_max': (df['T1']-df['T0']).max(),
+
+                # treatment effects median horizon
+                'ate_med_horizon': (T1_med-T0_med).mean(),
+                'cate_min_med_horizon': (T1_med-T0_med).min(),
+                'cate_median_med_horizon': (T1_med-T0_med).median(),
+                'cate_max_med_horizon': (T1_med-T0_med).max(),
+
+                # probabilities at fixed horizons
+                'ate_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).mean(),
+                'cate_min_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).min(),
+                'cate_median_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).median(),
+                'cate_max_p_surv_t25': (df['p_surv_t25_w1']-df['p_surv_t25_w0']).max(),
+
+                'ate_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).mean(),
+                'cate_min_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).min(),
+                'cate_median_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).median(),
+                'cate_max_p_surv_t50': (df['p_surv_t50_w1']-df['p_surv_t50_w0']).max(),
+                
+                'ate_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).mean(),
+                'cate_min_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).min(),
+                'cate_median_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).median(),
+                'cate_max_p_surv_t75': (df['p_surv_t75_w1']-df['p_surv_t75_w0']).max(),
             }
             result = {"dataset": df, 
                   "summary": summary_characteristics}
@@ -513,7 +571,8 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
                        val_size=2500,
                        test_size=2500,
                        target='rmst', horizon=1.0,
-                       include_surv_probs=False):
+                       include_surv_probs=False,
+                       include_rmst_med_horizon=False):
     """
     target: 'rmst' or 'survival_prob'
 
@@ -671,6 +730,12 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
                 "p_surv_t25_w1", "p_surv_t50_w1", "p_surv_t75_w1",
             ]
             has_surv = all(col in df.columns for col in surv_cols)
+
+            time_at_med_horizon = df['T'].quantile(0.5)
+            T1_med = np.minimum(df['T1'], time_at_med_horizon)
+            T0_med = np.minimum(df['T0'], time_at_med_horizon)
+            cate_true_med_horizon = (T1_med - T0_med).to_numpy()
+
             if has_surv and include_surv_probs:
                 # shape: (n_samples, 3) -> [t25, t50, t75]
                 cate_true_surv = np.column_stack([
@@ -678,7 +743,14 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
                     df["p_surv_t50_w1"].to_numpy() - df["p_surv_t50_w0"].to_numpy(),
                     df["p_surv_t75_w1"].to_numpy() - df["p_surv_t75_w0"].to_numpy(),
                 ])
+                if include_rmst_med_horizon:
+                    # also include RMST at median horizon CATE
+                    return X, W, Y, cate_true,  cate_true_med_horizon, cate_true_surv
                 return X, W, Y, cate_true, cate_true_surv
+            
+            # ---- include RMST at median horizon CATE ----
+            if include_rmst_med_horizon:
+                return X, W, Y, cate_true, cate_true_med_horizon
             return X, W, Y, cate_true
         
         split_results[rand_idx] = {
