@@ -54,8 +54,8 @@ def get_hyperparameters(dataset_name):
     elif dataset_name == 'mimic_syn':
         params = default_params.copy()
         # params['horizon'] = 40
-        # params['h_dim1'] = 150
-        # params['h_dim2'] = 150
+        params['h_dim1'] = 64
+        params['h_dim2'] = 64
         # params['batch_size'] = 256
         
     elif dataset_name in ['twin30', 'twin180']:
@@ -153,7 +153,9 @@ def main(args):
                 dataset_name=dataset_name,
                 train_size=train_size,
                 val_size=val_size,
-                test_size=test_size
+                test_size=test_size,
+                include_surv_probs=True if dataset_name in ['actg_syn', 'mimic_syn'] else False,
+                include_rmst_med_horizon=True if dataset_name in ['actg_syn', 'mimic_syn'] else False
             )
             
             if scenario_key not in results_dict[config_name]:
@@ -161,9 +163,16 @@ def main(args):
             
             # Run experiments for each repeat
             for rand_idx in range(num_repeats):
-                X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
-                X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
-                X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                if dataset_name in ['synthetic', 'actg_real', 'twin30', 'twin180']:
+                    X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
+                    X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
+                    X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                elif dataset_name in ['actg_syn', 'mimic_syn']:
+                    X_train, W_train, Y_train, cate_true_train, cate_true_med_horizon_train, surv_probs_train = split_dict[rand_idx]['train']
+                    X_val, W_val, Y_val, cate_true_val, cate_true_med_horizon_val, surv_probs_val = split_dict[rand_idx]['val']
+                    X_test, W_test, Y_test, cate_true_test, cate_true_med_horizon_test, surv_probs_test = split_dict[rand_idx]['test']
+                else:
+                    raise ValueError(f"Unknown handling of dataset name: {dataset_name}")
                 
                 val_size_ = Y_val.shape[0]
                 Y_val_test = np.vstack((Y_val, Y_test))
@@ -221,10 +230,10 @@ def main(args):
                     
                     # Evaluate model
                     start_time = time.time()
-                    rmse_val, cate_val_pred, ate_val_pred = learner.evaluate(
+                    mse_val, cate_val_pred, ate_val_pred = learner.evaluate(
                         X_val, cate_true_val, W_val
                     )
-                    rmse_test, cate_test_pred, ate_test_pred = learner.evaluate(
+                    mse_test, cate_test_pred, ate_test_pred = learner.evaluate(
                         X_test, cate_true_test, W_test
                     )
                     end_time = time.time()
@@ -239,20 +248,111 @@ def main(args):
                         "cate_true_val": cate_true_val,
                         "cate_pred_val": cate_val_pred,
                         "ate_pred_val": ate_val_pred,
-                        "cate_mse_val": rmse_val,
+                        "cate_mse_val": mse_val,
                         "ate_bias_val": ate_val_pred - ate_true,
-                        "ate_statistics_val": ate_val_pred,
+                        "ate_statistics_val": ate_val_pred, # these are the same as ate_pred for direct causal survival models
                         # Test set results
                         "cate_true": cate_true_test,
                         "cate_pred": cate_test_pred,
                         "ate_pred": ate_test_pred,
-                        "cate_mse": rmse_test,
+                        "cate_mse": mse_test,
                         "ate_bias": ate_test_pred - ate_true,
-                        "ate_statistics": ate_test_pred,
+                        "ate_statistics": ate_test_pred, # these are the same as ate_pred for direct causal survival models
                     }
-                    
+
+                    if dataset_name in ['actg_syn', 'mimic_syn']:
+
+                        # Evaluate RMST at median horizon
+                        mse_med_horizon_val, cate_med_horizon_val_pred, ate_med_horizon_val_pred = learner.evaluate_rmst_with_horizon(
+                            X_val, cate_true_med_horizon_val, horizon=event_time_50pct, W=W_val
+                        )
+                        mse_med_horizon_test, cate_med_horizon_test_pred, ate_med_horizon_test_pred = learner.evaluate_rmst_with_horizon(
+                            X_test, cate_true_med_horizon_test, horizon=event_time_50pct, W=W_test
+                        )
+
+                        ate_med_horizon_true = dataset_summary['ate_med_horizon']
+                        results_dict[config_name][scenario_key][rand_idx]["ate_true_med_horizon"] = ate_med_horizon_true
+
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_med_horizon_val"] = cate_true_med_horizon_val
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_med_horizon_val"] = cate_med_horizon_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_med_horizon_val"] = ate_med_horizon_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_med_horizon_val"] = mse_med_horizon_val
+                        results_dict[config_name][scenario_key][rand_idx]["ate_med_horizon_bias_val"] = ate_med_horizon_val_pred - ate_med_horizon_true
+
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_med_horizon"] = cate_true_med_horizon_test
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_med_horizon"] = cate_med_horizon_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_med_horizon"] = ate_med_horizon_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_med_horizon"] = mse_med_horizon_test
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_med_horizon"] = ate_med_horizon_test_pred - ate_med_horizon_true
+
+                        # Evaluate survival probabilities
+                        mse_p_surv_25pct_val, cate_p_surv_25pct_val_pred, ate_p_surv_25pct_val_pred = learner.evaluate_p_surv_with_horizon(
+                            X_val, surv_probs_val[:,0], horizon=event_time_25pct, W=W_val
+                        )
+                        mse_p_surv_25pct_test, cate_p_surv_25pct_test_pred, ate_p_surv_25pct_test_pred = learner.evaluate_p_surv_with_horizon(
+                            X_test, surv_probs_test[:,0], horizon=event_time_25pct, W=W_test
+                        )
+                        mse_p_surv_50pct_val, cate_p_surv_50pct_val_pred, ate_p_surv_50pct_val_pred = learner.evaluate_p_surv_with_horizon(
+                            X_val, surv_probs_val[:,1], horizon=event_time_50pct, W=W_val
+                        )
+                        mse_p_surv_50pct_test, cate_p_surv_50pct_test_pred, ate_p_surv_50pct_test_pred = learner.evaluate_p_surv_with_horizon(
+                            X_test, surv_probs_test[:,1], horizon=event_time_50pct, W=W_test
+                        )
+                        mse_p_surv_75pct_val, cate_p_surv_75pct_val_pred, ate_p_surv_75pct_val_pred = learner.evaluate_p_surv_with_horizon(
+                            X_val, surv_probs_val[:,2], horizon=event_time_75pct, W=W_val
+                        )
+                        mse_p_surv_75pct_test, cate_p_surv_75pct_test_pred, ate_p_surv_75pct_test_pred = learner.evaluate_p_surv_with_horizon(
+                            X_test, surv_probs_test[:,2], horizon=event_time_75pct, W=W_test
+                        )
+
+                        ate_p_surv_25pct_true = dataset_summary['ate_p_surv_t25']
+                        ate_p_surv_50pct_true = dataset_summary['ate_p_surv_t50']
+                        ate_p_surv_75pct_true = dataset_summary['ate_p_surv_t75']
+                        results_dict[config_name][scenario_key][rand_idx]["ate_true_p_surv_25pct"] = ate_p_surv_25pct_true
+                        results_dict[config_name][scenario_key][rand_idx]["ate_true_p_surv_50pct"] = ate_p_surv_50pct_true
+                        results_dict[config_name][scenario_key][rand_idx]["ate_true_p_surv_75pct"] = ate_p_surv_75pct_true
+                        
+                        # Survival probability results at 25th percentile time
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_25pct_val"] = surv_probs_val[:,0]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_25pct_val"] = cate_p_surv_25pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_25pct_val"] = ate_p_surv_25pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_25pct_val"] = mse_p_surv_25pct_val
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_25pct_val"] = ate_p_surv_25pct_val_pred - ate_p_surv_25pct_true
+                        
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_25pct"] = surv_probs_test[:,0]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_25pct"] = cate_p_surv_25pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_25pct"] = ate_p_surv_25pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_25pct"] = mse_p_surv_25pct_test
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_25pct"] = ate_p_surv_25pct_test_pred - ate_p_surv_25pct_true
+                        
+                        # Survival probability results at 50th percentile time
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_50pct_val"] = surv_probs_val[:,1]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_50pct_val"] = cate_p_surv_50pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_50pct_val"] = ate_p_surv_50pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_50pct_val"] = mse_p_surv_50pct_val
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_50pct_val"] = ate_p_surv_50pct_val_pred - ate_p_surv_50pct_true
+                        
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_50pct"] = surv_probs_test[:,1]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_50pct"] = cate_p_surv_50pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_50pct"] = ate_p_surv_50pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_50pct"] = mse_p_surv_50pct_test
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_50pct"] = ate_p_surv_50pct_test_pred - ate_p_surv_50pct_true
+
+                        # Survival probability results at 75th percentile time
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_75pct_val"] = surv_probs_val[:,2]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_75pct_val"] = cate_p_surv_75pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_75pct_val"] = ate_p_surv_75pct_val_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_75pct_val"] = mse_p_surv_75pct_val
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_75pct_val"] = ate_p_surv_75pct_val_pred - ate_p_surv_75pct_true
+                        
+                        results_dict[config_name][scenario_key][rand_idx]["cate_true_p_surv_75pct"] = surv_probs_test[:,2]
+                        results_dict[config_name][scenario_key][rand_idx]["cate_pred_p_surv_75pct"] = cate_p_surv_75pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["ate_pred_p_surv_75pct"] = ate_p_surv_75pct_test_pred
+                        results_dict[config_name][scenario_key][rand_idx]["cate_mse_p_surv_75pct"] = mse_p_surv_75pct_test
+                        results_dict[config_name][scenario_key][rand_idx]["ate_bias_p_surv_75pct"] = ate_p_surv_75pct_test_pred - ate_p_surv_75pct_true
+
                     print(f'\tTraining time: {runtime:.0f}s; Inference time: {inference_time:.0f}s')
-                    print(f'\tValidation CATE RMSE: {rmse_val:.4f}, Test CATE RMSE: {rmse_test:.4f}')
+                    print(f'\tValidation CATE RMSE: {np.sqrt(mse_val):.4f}, Test CATE RMSE: {np.sqrt(mse_test):.4f}')
                     print(f'\tATE True: {ate_true:.4f}, ATE Pred: {ate_test_pred:.4f}')
                     
                     # Save results
@@ -284,14 +384,71 @@ def main(args):
                 "std_ate_true": np.std([avg[i]["ate_true"] for i in range(num_repeats) if i in avg]),
                 "runtime": np.mean([avg[i]["runtime"] for i in range(num_repeats) if i in avg])
             }
+
+            if dataset_name in ['actg_syn', 'mimic_syn']:
+                # Validation set RMST at median horizon
+                results_dict[config_name][scenario_key]["average"]["mean_cate_mse_med_horizon_val"] = np.mean(
+                    [avg[i]["cate_mse_med_horizon_val"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["std_cate_mse_med_horizon_val"] = np.std(
+                    [avg[i]["cate_mse_med_horizon_val"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["mean_ate_bias_med_horizon_val"] = np.mean(
+                    [avg[i]["ate_med_horizon_bias_val"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["std_ate_bias_med_horizon_val"] = np.std(
+                    [avg[i]["ate_med_horizon_bias_val"] for i in range(num_repeats) if i in avg]
+                )
+                # Test set RMST at median horizon
+                results_dict[config_name][scenario_key]["average"]["mean_cate_mse_med_horizon"] = np.mean(
+                    [avg[i]["cate_mse_med_horizon"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["std_cate_mse_med_horizon"] = np.std(
+                    [avg[i]["cate_mse_med_horizon"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["mean_ate_bias_med_horizon"] = np.mean(
+                    [avg[i]["ate_bias_med_horizon"] for i in range(num_repeats) if i in avg]
+                )
+                results_dict[config_name][scenario_key]["average"]["std_ate_bias_med_horizon"] = np.std(
+                    [avg[i]["ate_bias_med_horizon"] for i in range(num_repeats) if i in avg]
+                )
+
+                # Survival probabilities at 25th, 50th, 75th percentiles
+                for perc in ['25pct', '50pct', '75pct']:
+                    # Validation set
+                    results_dict[config_name][scenario_key]["average"][f"mean_cate_mse_p_surv_{perc}_val"] = np.mean(
+                        [avg[i][f"cate_mse_p_surv_{perc}_val"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"std_cate_mse_p_surv_{perc}_val"] = np.std(
+                        [avg[i][f"cate_mse_p_surv_{perc}_val"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"mean_ate_bias_p_surv_{perc}_val"] = np.mean(
+                        [avg[i][f"ate_bias_p_surv_{perc}_val"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"std_ate_bias_p_surv_{perc}_val"] = np.std(
+                        [avg[i][f"ate_bias_p_surv_{perc}_val"] for i in range(num_repeats) if i in avg]
+                    )
+                    # Test set
+                    results_dict[config_name][scenario_key]["average"][f"mean_cate_mse_p_surv_{perc}"] = np.mean(
+                        [avg[i][f"cate_mse_p_surv_{perc}"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"std_cate_mse_p_surv_{perc}"] = np.std(
+                        [avg[i][f"cate_mse_p_surv_{perc}"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"mean_ate_bias_p_surv_{perc}"] = np.mean(
+                        [avg[i][f"ate_bias_p_surv_{perc}"] for i in range(num_repeats) if i in avg]
+                    )
+                    results_dict[config_name][scenario_key]["average"][f"std_ate_bias_p_surv_{perc}"] = np.std(
+                        [avg[i][f"ate_bias_p_surv_{perc}"] for i in range(num_repeats) if i in avg]
+                    )
             
             # Save updated results
             with open(output_pickle_path, "wb") as f:
                 pickle.dump(results_dict, f)
             
             print(f"Completed {config_name}, {scenario_key}:")
-            print(f"  Mean CATE RMSE: {results_dict[config_name][scenario_key]['average']['mean_cate_mse']:.4f} "
-                  f"± {results_dict[config_name][scenario_key]['average']['std_cate_mse']:.4f}")
+            print(f"  Mean CATE RMSE: {np.sqrt(results_dict[config_name][scenario_key]['average']['mean_cate_mse']):.4f} "
+                  f"± {np.sqrt(results_dict[config_name][scenario_key]['average']['std_cate_mse']):.4f}")
             print(f"  Mean ATE Bias: {results_dict[config_name][scenario_key]['average']['mean_ate_bias']:.4f} "
                   f"± {results_dict[config_name][scenario_key]['average']['std_ate_bias']:.4f}")
 
@@ -301,7 +458,9 @@ if __name__ == "__main__":
     
     # Data arguments
     parser.add_argument("--num_repeats", type=int, default=10)
-    parser.add_argument("--dataset_name", type=str, default='synthetic')
+    parser.add_argument("--dataset_name", type=str, default='synthetic',
+                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'twin30', 'twin180'],
+                        help='Dataset name for the experiment')
     parser.add_argument("--data_dir", type=str, default='./data')
     parser.add_argument("--result_dir", type=str, default='./results')
     parser.add_argument("--train_size", type=float, default=5000)
@@ -316,13 +475,13 @@ if __name__ == "__main__":
     # SurvITE-specific hyperparameters (optional overrides)
     parser.add_argument("--ipm_type", type=str, default="wasserstein", 
                        choices=['wasserstein', 'mmd', 'no_ipm'],
-                       help='IPM type for domain adaptation (default: wasserstein)')
+                       help='IPM type for domain adaptation (default of SurvITE paper: wasserstein)')
     parser.add_argument("--beta", type=float, default=0.001,
                        help='IPM regularization weight (default: 0.001)')
     parser.add_argument("--epochs", type=int, default=1500,
-                       help='Maximum training epochs (default: 1200)')
+                       help='Maximum training epochs')
     parser.add_argument("--batch_size", type=int, default=256,
-                       help='Training batch size (default: 256)')
+                       help='Training batch size')
     parser.add_argument("--verbose", action='store_true',
                        help='Print training progress')
     
