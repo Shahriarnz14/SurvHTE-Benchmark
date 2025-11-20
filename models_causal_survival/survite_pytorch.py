@@ -473,10 +473,50 @@ class SurvITE(nn.Module):
         surv0_eval = self._interpolate_survival(surv0, eval_times)  # [n, len(eval_times)]
         
         # Compute RMST using trapezoidal rule
-        # RMST = int_0^horizon S(t) dt ≈ sum of trapezoids
+        # RMST = int_0^horizon S(t) dt approx sum of trapezoids
         rmst1 = np.trapz(surv1_eval, eval_times, axis=1)
         rmst0 = np.trapz(surv0_eval, eval_times, axis=1)
         
         # ITE
         ite = rmst1 - rmst0
+        return ite
+    
+    def predict_p_surv_ite(self, x, horizon=None):
+        """
+        Predict survival-probability ITE at a given horizon.
+        
+        ITE(h) = S(treatment=1, t=h) - S(treatment=0, t=h)
+        
+        Args:
+            x: features
+            horizon: time horizon in original continuous time units (not index).
+                    If None, uses max time in time_grid.
+        
+        Returns:
+            ite: survival-probability-based treatment effect at horizon
+        """
+        # Default to last time in grid
+        if horizon is None or not np.isfinite(horizon):
+            horizon = self.time_grid[-1]
+
+        # Make sure horizon is within a reasonable range; if outside, we will rely
+        # on whatever behavior _interpolate_survival has for extrapolation
+        eval_times = np.array([horizon], dtype=float)
+
+        # Get survival on full grid
+        surv1 = self.predict_survival_A1(x)  # [n, t_max+1]
+        surv0 = self.predict_survival_A0(x)  # [n, t_max+1]
+
+        # Interpolate survival at the horizon
+        # _interpolate_survival should take (surv_matrix, eval_times)
+        # and return [n, len(eval_times)]
+        surv1_eval = self._interpolate_survival(surv1, eval_times)  # [n, 1]
+        surv0_eval = self._interpolate_survival(surv0, eval_times)  # [n, 1]
+
+        # Extract survival probability at horizon
+        p1 = surv1_eval[:, 0]
+        p0 = surv0_eval[:, 0]
+
+        # ITE in terms of survival probability
+        ite = p1 - p0
         return ite

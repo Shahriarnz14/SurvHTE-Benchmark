@@ -6,7 +6,7 @@ Follows the same interface as causal_survival_forest.py
 import numpy as np
 import torch
 import warnings
-from sklearn.metrics import root_mean_squared_error
+from sklearn.metrics import mean_squared_error, root_mean_squared_error
 from sklearn.model_selection import train_test_split
 import os
 import sys
@@ -283,6 +283,56 @@ class SurvITEModel:
         
         return cate
     
+    def predict_rmst_cate_with_horizon(self, X, W, horizon):
+        """
+        Predict CATE using RMST with a specified horizon
+        
+        Parameters:
+        -----------
+        X : np.array
+            Features of shape (n, p)
+        W : np.array
+            Treatment assignments of shape (n,)
+        horizon : float
+            Time horizon in original time units for RMST calculation
+        
+        Returns:
+        --------
+        np.array
+            Predicted CATE values of shape (n,)
+        """
+        if self.model is None:
+            raise RuntimeError("You must call `fit` before `predict`.")
+        
+        cate = self.model.predict_rmst_ite(X, horizon=horizon)
+        
+        return cate
+    
+    def predict_p_surv_cate_with_horizon(self, X, W, horizon):
+        """
+        Predict CATE using difference in survival probabilities at a specified horizon
+        
+        Parameters:
+        -----------
+        X : np.array
+            Features of shape (n, p)
+        W : np.array
+            Treatment assignments of shape (n,)
+        horizon : float
+            Time horizon in original time units for survival probability calculation
+        
+        Returns:
+        --------
+        np.array
+            Predicted CATE values of shape (n,)
+        """
+        if self.model is None:
+            raise RuntimeError("You must call `fit` before `predict`.")
+        
+        p_surv_cate = self.model.predict_p_surv_ite(X, horizon=horizon)
+        
+        return p_surv_cate
+    
     def predict_survival(self, X, W, target_times=None):
         """
         Predict survival curves
@@ -339,8 +389,66 @@ class SurvITEModel:
         """
         cate_pred = self.predict_cate(X, W)
         ate_pred = np.mean(cate_pred)
-        rmse = root_mean_squared_error(cate_true, cate_pred)
-        return rmse, cate_pred, ate_pred
+        mse = mean_squared_error(cate_true, cate_pred)
+        return mse, cate_pred, ate_pred
+    
+    def evaluate_rmst_with_horizon(self, X, cate_true, horizon, W=None):
+        """
+        Evaluate RMST-based CATE predictions at a specified horizon using mean squared error
+        
+        Parameters:
+        -----------
+        X : np.ndarray
+            Test features
+        cate_true : np.ndarray
+            Ground-truth CATE values
+        horizon : float
+            Time horizon in original time units for RMST calculation
+        W : np.ndarray or None
+            Treatment assignment (not used in this method)
+        
+        Returns:
+        --------
+        mse : float
+            Mean squared error
+        cate_pred : np.ndarray
+            Predicted CATE values
+        ate_pred : float
+            Predicted ATE (average treatment effect)
+        """
+        cate_pred = self.predict_rmst_cate_with_horizon(X, W=None, horizon=horizon)
+        ate_pred = np.mean(cate_pred)
+        mse = mean_squared_error(cate_true, cate_pred)
+        return mse, cate_pred, ate_pred
+    
+    def evaluate_p_surv_with_horizon(self, X, cate_true, horizon, W=None):
+        """
+        Evaluate survival probability-based CATE predictions at a specified horizon using mean squared error
+        
+        Parameters:
+        -----------
+        X : np.ndarray
+            Test features
+        cate_true : np.ndarray
+            Ground-truth CATE values
+        horizon : float
+            Time horizon in original time units for survival probability calculation
+        W : np.ndarray or None
+            Treatment assignment (not used in this method)
+        
+        Returns:
+        --------
+        mse : float
+            Mean squared error
+        cate_pred : np.ndarray
+            Predicted CATE values
+        ate_pred : float
+            Predicted ATE (average treatment effect)
+        """
+        cate_pred = self.predict_p_surv_cate_with_horizon(X, W=None, horizon=horizon)
+        ate_pred = np.mean(cate_pred)
+        mse = mean_squared_error(cate_true, cate_pred)
+        return mse, cate_pred, ate_pred
     
     def save_model(self, path):
         """Save model checkpoint"""
