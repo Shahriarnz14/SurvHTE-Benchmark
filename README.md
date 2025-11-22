@@ -1,7 +1,7 @@
 # SurvHTE-Bench: A Benchmark for Heterogeneous Treatment Effect Estimation in Survival Analysis
 
 This repository provides code for SurvHTE-Bench, a benchmark for estimating heterogeneous treatment effects (HTEs) from censored survival data.
-It includes implementations of imputation-based meta-learners, double machine learning (DML), survival-adapted meta-learners, and direct survival causal models.
+It includes implementations of imputation-based meta-learners, double machine learning (DML), survival-adapted meta-learners, and direct survival causal models (e.g., Causal Survival Forest, SurvITE).
 
 We support experiments on synthetic, semi-synthetic, and real-world datasets.
 ( Note: MIMIC-related datasets cannot be shared.)
@@ -17,6 +17,7 @@ For reproducibility, each dataset has an idx_split.csv file to ensure consistent
 ├── models_causal_survival_meta/ # Survival meta-learners
 ├── models_utils/                # Utilities (checkpointing, shared helpers)
 ├── data/                        # Synthetic, semi-synthetic, and real datasets; generation + preprocessing
+├── survhte_base/                # Base interfaces for data generation and learner families
 ├── results/                     # Stored results, organized by dataset and method family
 ├── scripts/                     # Shell scripts to reproduce experiments
 ├── notebooks/                   # Analysis and aggregation notebooks
@@ -39,6 +40,9 @@ For reproducibility, each dataset has an idx_split.csv file to ensure consistent
 
 - `models_causal_survival/`: Specialized causal survival models (referred as "Direct-survival CATE models" in the paper)
   - `causal_survival_forest.py`: Implementation of Causal Survival Forests
+  - `survite_model.py`: SurvITE model wrapper for SurvHTE-Benchmark
+  - `survite_pytorch.py`: Implementation of SurvITE with PyTorch
+  - `survite_trainer.py`: Training utilities for SurvITE
 
 - `benchmark/`: Python scripts to run experiments:
   - `impute_event_times_precomputations.py`: Precompute event-time imputations
@@ -46,6 +50,30 @@ For reproducibility, each dataset has an idx_split.csv file to ensure consistent
   - `run_dml_learner_impute.py`: Run DML/Causal Forest with imputation
   - `run_meta_learner_survival.py`: Run survival-adapted meta-learners
   - `run_causal_survival_forest.py`: Run Causal Survival Forest
+  - `run_survite.py`: Run SurvITE
+
+### Extensibility: Base Interfaces
+
+To make the benchmark easier to extend, we provide explicit base interfaces in: `survhte_base/`
+
+These include:
+* `data_generation_base.py`: `DataGeneration` base class for defining custom data-generating mechanisms (hazards, censoring, treatment policies with/without feedback).
+* `outcome_imputation_base.py`: `OutcomeImputationBase` for outcome-imputation methods (with an optional hook to generate imputed outcomes).
+* `direct_survival_base.py`: `DirectSurvivalCATEBase` for direct-survival HTE models, including:
+  * RMST-based CATE via `predict_cate`
+  * Survival-probability CATE via `predict_cate_survprob`
+* `survival_meta_learner_base.py`: `SurvivalMetaLearnerBase` for survival meta-learners with analogous interfaces for RMST-based and survival-probability CATEs.
+
+A step-by-step tutorial on how to:
+- plug in new data generators,
+- add new outcome-imputation methods,
+- add new direct-survival CATE models, and
+- add new survival meta-learners
+
+is provided in:
+`survhte_base/README.md`
+
+See that file for concrete examples of how to subclass these interfaces and register new methods in the benchmark scripts.
   
 
 ## Data
