@@ -27,3 +27,5 @@
 !data/semi-synthetic/idx_split_actg_syn.csv
 !data/synthetic/*.h5
 !data/synthetic/idx_split.csv
+
+scripts/**/*med*.sh
