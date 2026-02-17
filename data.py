@@ -391,11 +391,11 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
     elif dataset_name == 'mimic_syn':
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_mimic_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
-        for config in [ "mimic_1_syn_with_surv_probs",
-                        "mimic_2_syn_with_surv_probs",
-                        "mimic_3_syn_with_surv_probs",
-                        "mimic_4_syn_with_surv_probs",
-                        "mimic_5_syn_with_surv_probs",
+        for config in [ "mimic_1_syn",
+                        "mimic_2_syn",
+                        "mimic_3_syn",
+                        "mimic_4_syn",
+                        "mimic_5_syn",
                         "mimic_pslin_tclin",
                         "mimic_pslin_tcnlin",
                         "mimic_psnlin_tclin",
