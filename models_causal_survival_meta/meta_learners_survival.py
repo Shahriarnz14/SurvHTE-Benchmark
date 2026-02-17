@@ -28,7 +28,7 @@ class BaseMetaLearnerSurvival(ABC):
     """
 
     def __init__(self, base_model_name='DeepSurv', base_model_params=None,
-                 base_model_grid=None, metric='mean', max_time=np.inf):
+                 base_model_grid=None, metric='mean', med_time=None, max_time=np.inf):
         """
         Initialize the survival meta-learner.
         """
@@ -36,6 +36,7 @@ class BaseMetaLearnerSurvival(ABC):
         self.base_model_params = base_model_params if base_model_params else {}
         self.base_model_grid = base_model_grid if base_model_grid else {}
         self.metric = metric
+        self.med_time = med_time
         self.max_time = max_time
         self.models = {}
         self.evaluation_test_dict = {}
@@ -55,6 +56,36 @@ class BaseMetaLearnerSurvival(ABC):
     def evaluate(self, X, cate_true, W=None):
         """Evaluate CATE predictions using mean squared error."""
         cate_pred = self.predict_cate(X, W)
+        ate_pred = np.mean(cate_pred)
+        mse = mean_squared_error(cate_true, cate_pred)
+        return mse, cate_pred, ate_pred
+    
+
+    def evaluate_rmst_with_horizon(self, X, cate_true, horizon, W=None):
+        """
+        Evaluate RMST-based CATE predictions at a specified horizon using mean squared error
+        
+        Parameters:
+        -----------
+        X : np.ndarray
+            Test features
+        cate_true : np.ndarray
+            Ground-truth CATE values
+        horizon : float
+            Time horizon in original time units for RMST calculation
+        W : np.ndarray or None
+            Treatment assignment (not used in this method)
+        
+        Returns:
+        --------
+        mse : float
+            Mean squared error
+        cate_pred : np.ndarray
+            Predicted CATE values
+        ate_pred : float
+            Predicted ATE (average treatment effect)
+        """
+        cate_pred = self.predict_rmst_cate_with_horizon(X, W=W, horizon=horizon)
         ate_pred = np.mean(cate_pred)
         mse = mean_squared_error(cate_true, cate_pred)
         return mse, cate_pred, ate_pred
@@ -360,6 +391,12 @@ class TLearnerSurvival(BaseMetaLearnerSurvival):
         mu0 = self.models['control'].predict_metric(X, metric=self.metric, max_time=self.max_time)
         return mu1 - mu0
     
+    def predict_rmst_cate_with_horizon(self, X, horizon, W=None):
+        mu1 = self.models['treated'].predict_metric(X, metric=self.metric, max_time=horizon)
+        mu0 = self.models['control'].predict_metric(X, metric=self.metric, max_time=horizon)
+        return mu1 - mu0
+
+    
     def predict_cate_surv_probs(self, X, horizons, W=None):
         """
         Predict CATE based on survival probabilities at given time horizons.
@@ -426,6 +463,13 @@ class SLearnerSurvival(BaseMetaLearnerSurvival):
         mu1 = self.models['s'].predict_metric(X1, metric=self.metric, max_time=self.max_time)
         return mu1 - mu0
     
+    def predict_rmst_cate_with_horizon(self, X, horizon, W=None):
+        X0 = np.column_stack((X, np.zeros(len(X))))
+        X1 = np.column_stack((X, np.ones(len(X))))
+        mu0 = self.models['s'].predict_metric(X0, metric=self.metric, max_time=horizon)
+        mu1 = self.models['s'].predict_metric(X1, metric=self.metric, max_time=horizon)
+        return mu1 - mu0
+    
     def predict_cate_surv_probs(self, X, horizons, W=None):
         """
         Predict CATE based on survival probabilities at given time horizons
@@ -477,8 +521,15 @@ class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
     Matching-Learner for survival data: Uses nearest neighbor matching to estimate treatment effects.
     """
     def __init__(self, base_model_name='DeepSurv', base_model_params=None, base_model_grid=None,
-                 metric='mean', max_time=np.inf, num_matches=5, distance_metric='euclidean'):
-        super().__init__(base_model_name, base_model_params, base_model_grid, metric, max_time)
+                 metric='mean', max_time=np.inf, med_time=None, num_matches=5, distance_metric='euclidean'):
+        super().__init__(
+            base_model_name=base_model_name,
+            base_model_params=base_model_params,
+            base_model_grid=base_model_grid,
+            metric=metric,
+            med_time=med_time,
+            max_time=max_time
+        )
         self.num_matches = num_matches
         self.distance_metric = distance_metric
 
@@ -512,7 +563,17 @@ class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
         cate = (true_outcomes - opposite_outcomes) * (2 * W - 1)
         return cate
     
-    def predict_cate_surv_probs(self, X, horizons, W=None):
+    def predict_rmst_cate_with_horizon(self, X, horizon, W):
+        X_aug = np.column_stack((X, W))
+        true_outcomes = self.models['model'].predict_metric(
+            X_aug, metric=self.metric, max_time=horizon
+        )
+        opposite_outcomes = self._get_opposite_treatment_outcomes(X, W)
+        cate = (true_outcomes - opposite_outcomes) * (2 * W - 1)
+        return cate
+
+    
+    def predict_cate_surv_probs(self, X, horizons, W):
         """
         Predict CATE based on survival probabilities at given time horizons
         using Matching-learner.
@@ -534,8 +595,6 @@ class MatchingLearnerSurvival(BaseMetaLearnerSurvival):
             CATE for survival probabilities at each horizon, using matching:
             (factual - matched-counterfactual) * (2W - 1).
         """
-        if W is None:
-            raise ValueError("W must be provided for MatchingLearnerSurvival.predict_cate_surv_probs.")
 
         W = np.asarray(W).astype(int)
         X_aug = np.column_stack((X, W))

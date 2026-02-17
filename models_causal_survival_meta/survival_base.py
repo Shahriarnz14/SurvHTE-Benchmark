@@ -503,7 +503,7 @@ class SurvivalModelBase:
         else:
             raise ValueError(f"Unsupported model type: {self.model_type}")
         
-    def predict_metric(self, X, metric="median", max_time=np.inf, include_surv_probs=False, horizons=None):
+    def predict_metric(self, X, metric="median", max_time=np.inf, med_time=None, include_surv_probs=False, horizons=None):
         """
         Predict a summary metric from the survival curve.
         TODO: change the name of the args from `metric` to `target`
