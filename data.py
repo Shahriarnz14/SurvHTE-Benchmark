@@ -120,7 +120,7 @@ class SyntheticDataGenerator:
         X = df[[c for c in df.columns if c.startswith('X')]].values
         W = df['W'].values
         s = self.scenario
-        eps = np.random.normal(size=len(df)) # TODO: why some with eps, some without?
+        eps = np.random.normal(size=len(df))
 
         U = df[['U1', 'U2']].values
         U_counfounder = (U[:, 0] - X[:, 1]) if self.unobserved else np.zeros(len(U))
