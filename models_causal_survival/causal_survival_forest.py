@@ -12,7 +12,7 @@ class CausalSurvivalForestGRF:
         :param horizon: The maximum time horizon for predictions. If None, it will be set to the maximum event time in the training data.
         :param target: The target for the causal survival forest. Default is "RMST" (Restricted Mean Survival Time).
         """
-        self.failure_times_grid_size = failure_times_grid_size
+        self.failure_times_grid_size = failure_times_grid_size if failure_times_grid_size is not None else 100
         self.model = None
         self.horizon = horizon # if not provided, will be set to the maximum event time in the training data
         self.target = target
