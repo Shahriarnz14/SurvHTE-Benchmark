@@ -141,14 +141,17 @@ def main(args):
     for config_name, setup_dict in tqdm(experiment_setups.items(), desc="Experiment Setups"):
         if config_name not in results_dict:
             results_dict[config_name] = {}
-        
+        if dataset_name in ['actgHC', 'actgLC']:
+            experiment_repeat_setup = experiment_repeat_setups[config_name]
+        else:
+            experiment_repeat_setup = experiment_repeat_setups
         for scenario_key in tqdm(setup_dict, desc=f"{config_name} Scenarios"):
             dataset_df = setup_dict[scenario_key]["dataset"]
             dataset_summary = setup_dict[scenario_key]["summary"]
             
             # Prepare data splits
             split_dict = prepare_data_split(
-                dataset_df, experiment_repeat_setups, 
+                dataset_df, experiment_repeat_setup, 
                 num_repeats=num_repeats, 
                 dataset_name=dataset_name,
                 train_size=train_size,
@@ -163,10 +166,12 @@ def main(args):
             
             # Run experiments for each repeat
             for rand_idx in range(num_repeats):
-                if dataset_name in ['synthetic', 'actg_real', 'twin30', 'twin180']:
+                if dataset_name in ['synthetic', 'actgLC', 'actgHC', 'twin30', 'twin180']:
                     X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
                     X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
                     X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                    if dataset_name == 'actgHC':
+                        Y_train, Y_val, Y_test = Y_train[:, rand_idx*2:(rand_idx+1)*2], Y_val[:, rand_idx*2:(rand_idx+1)*2], Y_test[:, rand_idx*2:(rand_idx+1)*2]
                 elif dataset_name in ['actg_syn', 'mimic_syn']:
                     X_train, W_train, Y_train, cate_true_train, cate_true_med_horizon_train, surv_probs_train = split_dict[rand_idx]['train']
                     X_val, W_val, Y_val, cate_true_val, cate_true_med_horizon_val, surv_probs_val = split_dict[rand_idx]['val']
@@ -459,7 +464,7 @@ if __name__ == "__main__":
     # Data arguments
     parser.add_argument("--num_repeats", type=int, default=10)
     parser.add_argument("--dataset_name", type=str, default='synthetic',
-                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'twin30', 'twin180'],
+                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'twin30', 'twin180', 'actgLC', 'actgHC'],
                         help='Dataset name for the experiment')
     parser.add_argument("--data_dir", type=str, default='./data')
     parser.add_argument("--result_dir", type=str, default='./results')

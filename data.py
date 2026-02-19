@@ -558,6 +558,37 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
             scenario_dict = {'Scenario_A': result} # just one scenario 
             experiment_setups[config] = scenario_dict
         pass
+    elif dataset_name in ['actgLC', 'actgHC']:
+        idx_split_file_paths = {f'ACTG_175_HIV{i}': os.path.join(data_dir, 'real', f'idx_split_HIV{i}.csv') for i in [1,2,3]}
+        experiment_repeat_setups = {config: pd.read_csv(path).set_index("idx") for config, path in idx_split_file_paths.items()}
+        for config in ["ACTG_175_HIV1", "ACTG_175_HIV2", "ACTG_175_HIV3"]:
+            data_path = os.path.join(data_dir, 'real', f'{config}.csv')
+            df = pd.read_csv(data_path)
+            summary_characteristics = {
+                # rates
+                'censoring_rate': 1-df['effect_non_censor'].mean(),
+                'treatment_rate': df['trt'].mean(),
+
+                # event times
+                'event_time_min': df['observed_time_month'].min(),
+                'event_time_25pct': df['observed_time_month'].quantile(0.25),
+                'event_time_median': df['observed_time_month'].median(),
+                'event_time_75pct': df['observed_time_month'].quantile(0.75),
+                'event_time_max': df['observed_time_month'].max(),
+                'event_time_mean': df['observed_time_month'].mean(),
+                'event_time_std': df['observed_time_month'].std(),
+
+                # treatment effects
+                'ate': 0, # (df['T1']-df['T0']).mean(),
+                'cate_min': 0, # (df['T1']-df['T0']).min(),
+                'cate_median': 0, # (df['T1']-df['T0']).median(),
+                'cate_max': 0 # (df['T1']-df['T0']).max()
+            }
+            result = {"dataset": df, 
+                  "summary": summary_characteristics}
+            scenario_dict = {'Scenario_A': result} # just one scenario 
+            experiment_setups[config] = scenario_dict
+        pass
     else:
         raise NotImplementedError
     
@@ -643,12 +674,16 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         cate_true_col=None
         y_cols = ['observed_time', 'event']
         idx_col = 'id'
-    elif dataset_name in ('actg', 'actgL'):
+    elif dataset_name in ['actgHC', 'actgLC']:
         X_bi_cols = ['gender', 'race', 'hemo', 'homo', 'drugs', 'str2', 'symptom']
         X_cont_cols = ['age', 'wtkg',  'karnof', 'cd40', 'cd80']
         U = ['z30']
         X_cols = X_bi_cols + X_cont_cols
-        y_cols = ['observed_time_month', 'effect_non_censor']
+        if dataset_name == 'actgHC': # high censoring rate version with mannually injected censoring
+            y_cols_nested = [[f't{i}', f'e{i}'] for i in range(10)] # 10 different versions of randomly injected high censoring, see `data/real/prepare_actg_175.ipynb` for details
+            y_cols = [col for cols in y_cols_nested for col in cols]
+        if dataset_name == 'actgLC': # original lower censoring rate version
+            y_cols = ['observed_time_month', 'effect_non_censor']
         W_col = 'trt'
         cate_true_col = 'cate_base'
         idx_col = 'id'
@@ -731,10 +766,13 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
             ]
             has_surv = all(col in df.columns for col in surv_cols)
 
-            time_at_med_horizon = df['T'].quantile(0.5)
-            T1_med = np.minimum(df['T1'], time_at_med_horizon)
-            T0_med = np.minimum(df['T0'], time_at_med_horizon)
-            cate_true_med_horizon = (T1_med - T0_med).to_numpy()
+            if dataset_name in ['actgHC', 'actgLC']:
+                cate_true_med_horizon = 0 # no true CATE, set to zero and ignore in evaluation
+            else:
+                time_at_med_horizon = df['T'].quantile(0.5)
+                T1_med = np.minimum(df['T1'], time_at_med_horizon)
+                T0_med = np.minimum(df['T0'], time_at_med_horizon)
+                cate_true_med_horizon = (T1_med - T0_med).to_numpy()
 
             if has_surv and include_surv_probs:
                 # shape: (n_samples, 3) -> [t25, t50, t75]
