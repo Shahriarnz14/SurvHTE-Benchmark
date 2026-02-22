@@ -25,7 +25,7 @@ def get_hyperparameters(dataset_name):
         'z_dim': 32,
         'h_dim1': 32,
         'h_dim2': 32,
-        'num_layers1': 2,
+        'num_layers1': 3,
         'num_layers2': 2,
         'activation': 'relu',
         'dropout': 0.3,
@@ -58,7 +58,7 @@ def get_hyperparameters(dataset_name):
         params['h_dim2'] = 64
         # params['batch_size'] = 256
         
-    elif dataset_name in ['twin30', 'twin180']:
+    elif dataset_name in ['twin']:
         params = default_params.copy()
         # params['horizon'] = 365
         # params['z_dim'] = 150  # Larger representation for complex data
@@ -163,7 +163,7 @@ def main(args):
             
             # Run experiments for each repeat
             for rand_idx in range(num_repeats):
-                if dataset_name in ['synthetic', 'actg_real', 'twin30', 'twin180']:
+                if dataset_name in ['synthetic', 'actg_real', 'twin']:
                     X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
                     X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
                     X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
@@ -459,7 +459,7 @@ if __name__ == "__main__":
     # Data arguments
     parser.add_argument("--num_repeats", type=int, default=10)
     parser.add_argument("--dataset_name", type=str, default='synthetic',
-                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'twin30', 'twin180'],
+                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'actg', 'twin'],
                         help='Dataset name for the experiment')
     parser.add_argument("--data_dir", type=str, default='./data')
     parser.add_argument("--result_dir", type=str, default='./results')

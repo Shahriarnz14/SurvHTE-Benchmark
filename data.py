@@ -326,7 +326,7 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
             
             experiment_setups[causal_config] = scenario_dict
     elif dataset_name == 'actg_syn':
-        data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
+        data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn_with_surv_probs.csv')
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_actg_syn.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
         df = pd.read_csv(data_path)
