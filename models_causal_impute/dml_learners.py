@@ -7,6 +7,7 @@ from econml.inference import BootstrapInference
 import os
 import pickle
 from models_utils.checkpoint_utils import ensure_dir
+from models_utils.checkpoint_utils import AteInferenceObject
 
 class BaseDirectLearner(ABC):
     """
@@ -31,7 +32,10 @@ class BaseDirectLearner(ABC):
         cate_pred = self.predict_cate(X)
         mse = mean_squared_error(cate_true, cate_pred)
         # ate_pred = np.mean(cate_pred)
-        ate_pred = self.model.ate_inference(X)
+        if self.num_bootstrap_samples is not None and hasattr(self.model, 'ate_inference'):
+            ate_pred = self.model.ate_inference(X)
+        else:
+            ate_pred = AteInferenceObject(np.mean(cate_pred))
         return mse, cate_pred, ate_pred
     
     def save_model(self, filepath):
@@ -72,8 +76,8 @@ class DoubleML(BaseDirectLearner):
     """
     Double Machine Learning (Partially Linear) using EconML DML.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, num_bootstrap_samples=100):
+        super().__init__(num_bootstrap_samples=num_bootstrap_samples)
         self.model = DML(
             model_final=StatsModelsLinearRegression(fit_intercept=False),
             model_y='auto',
@@ -83,8 +87,11 @@ class DoubleML(BaseDirectLearner):
         )
 
     def fit(self, X_train, W_train, Y_train):
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -94,8 +101,8 @@ class CausalForest(BaseDirectLearner):
     """
     Causal Forest using EconML's CausalForestDML.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, num_bootstrap_samples=100):
+        super().__init__(num_bootstrap_samples=num_bootstrap_samples)
         self.model = CausalForestDML(
             model_y='auto',
             model_t='auto',
@@ -104,8 +111,11 @@ class CausalForest(BaseDirectLearner):
         )
 
     def fit(self, X_train, W_train, Y_train):
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)

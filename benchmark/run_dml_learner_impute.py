@@ -94,7 +94,7 @@ def main(args):
                     )
 
                 learner_cls = {"causal_forest": CausalForest, "double_ml": DoubleML}[args.dml_learner]
-                learner = learner_cls()
+                learner = learner_cls(num_bootstrap_samples=args.num_bootstrap_samples)
 
                 if rand_idx in results_dict[config_name][scenario_key]:
                     # t_ = time.time()
@@ -222,6 +222,8 @@ if __name__ == "__main__":
                         choices=["Pseudo_obs", "Margin", "IPCW-T"])
     parser.add_argument("--dml_learner", type=str, default="causal_forest", 
                         choices=["double_ml", "causal_forest"])
+    parser.add_argument("--num_bootstrap_samples", type=int, default=100,
+                        help="Number of bootstrap samples for ATE inference. Set to None to disable bootstrap inference (Faste inference/Learning).")
     parser.add_argument("--save_model", action="store_true", 
                         help="If set, save the trained model. Default is False.")
     args = parser.parse_args()

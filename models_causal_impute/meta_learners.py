@@ -11,6 +11,7 @@ from sklearn.linear_model import Ridge, Lasso
 from xgboost import XGBRegressor
 from .regressor_base import RegressorBaseLearner
 from models_utils.checkpoint_utils import ensure_dir
+from models_utils.checkpoint_utils import AteInferenceObject
 import pickle
 import os
 
@@ -76,8 +77,11 @@ class BaseMetaLearner(ABC):
         - ate_pred (object): Average Treatment Effect (ATE) prediction.
         """
         cate_pred = self.predict_cate(X)
-        # ate_pred = np.mean(cate_pred)
-        ate_pred = self.model.ate_inference(X)
+        if self.num_bootstrap_samples is not None and hasattr(self.model, 'ate_inference'):
+            ate_pred = self.model.ate_inference(X)
+        else: 
+            # ate_pred = np.mean(cate_pred)
+            ate_pred = AteInferenceObject(np.mean(cate_pred))
         mse = mean_squared_error(cate_true, cate_pred)
         return mse, cate_pred, ate_pred
     
@@ -140,12 +144,15 @@ class T_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = TLearner(
             models=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -184,12 +191,15 @@ class S_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = SLearner(
             overall_model=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -228,14 +238,17 @@ class X_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = XLearner(
             models=underlying_model,
             # propensity_model=LogisticRegression(),
             cate_models=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -296,8 +309,12 @@ class DR_Learner(BaseMetaLearner):
             model_final=model_final,
             random_state=42,
         )
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
+        
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)

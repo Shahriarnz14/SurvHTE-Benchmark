@@ -28,3 +28,16 @@ def get_checkpoint_path(dataset_type, causal_config, scenario, model_family,
     ensure_dir(base_path)
     filename = f"{model_name}_repeat{repeat_idx}.pkl"
     return os.path.join(base_path, filename)
+
+
+class AteInferenceObject:
+    """
+    A simple wrapper for ATE inference results if no bootstrap inference is used.
+    """
+    def __init__(self, ate_value):
+        self.ate_value = ate_value
+        self.mean_point = ate_value
+        self.conf_int = (ate_value, ate_value)  # No confidence interval without bootstrap
+
+    def conf_int_mean(self):
+        return self.conf_int
