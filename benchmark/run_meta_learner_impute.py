@@ -100,7 +100,7 @@ def main(args):
 
                     learner_cls = {"t_learner": T_Learner, "s_learner": S_Learner, 
                                    "x_learner": X_Learner, "dr_learner": DR_Learner}[args.meta_learner]
-                    learner = learner_cls(base_model_name=base_model)
+                    learner = learner_cls(base_model_name=base_model, num_bootstrap_samples=args.num_bootstrap_samples)
 
                     if rand_idx in results_dict[config_name][scenario_key][base_model]:
                         # t_ = time.time()
@@ -269,6 +269,8 @@ if __name__ == "__main__":
                         choices=["Pseudo_obs", "Margin", "IPCW-T"])
     parser.add_argument("--meta_learner", type=str, default="t_learner", 
                         choices=["t_learner", "s_learner", "x_learner", "dr_learner"])
+    parser.add_argument("--num_bootstrap_samples", type=int, default=100, 
+                        help="Number of bootstrap samples for ATE inference. Set to None to disable bootstrap inference (Faste inference/Learning).")
     parser.add_argument("--save_model", action="store_true", 
                         help="If set, save the trained model. Default is False.")
     args = parser.parse_args()

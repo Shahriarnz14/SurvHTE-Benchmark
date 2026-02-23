@@ -77,7 +77,7 @@ class BaseMetaLearner(ABC):
         - ate_pred (object): Average Treatment Effect (ATE) prediction.
         """
         cate_pred = self.predict_cate(X)
-        if self.num_bootstrap_sample is not None and hasattr(self.model, 'ate_inference'):
+        if self.num_bootstrap_samples is not None and hasattr(self.model, 'ate_inference'):
             ate_pred = self.model.ate_inference(X)
         else: 
             # ate_pred = np.mean(cate_pred)

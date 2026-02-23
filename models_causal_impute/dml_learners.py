@@ -76,8 +76,8 @@ class DoubleML(BaseDirectLearner):
     """
     Double Machine Learning (Partially Linear) using EconML DML.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, num_bootstrap_samples=100):
+        super().__init__(num_bootstrap_samples=num_bootstrap_samples)
         self.model = DML(
             model_final=StatsModelsLinearRegression(fit_intercept=False),
             model_y='auto',
@@ -101,8 +101,8 @@ class CausalForest(BaseDirectLearner):
     """
     Causal Forest using EconML's CausalForestDML.
     """
-    def __init__(self):
-        super().__init__()
+    def __init__(self, num_bootstrap_samples=100):
+        super().__init__(num_bootstrap_samples=num_bootstrap_samples)
         self.model = CausalForestDML(
             model_y='auto',
             model_t='auto',
