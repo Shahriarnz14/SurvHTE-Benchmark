@@ -140,12 +140,12 @@ class T_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
 
         self.model = TLearner(
             models=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -184,12 +184,12 @@ class S_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
 
         self.model = SLearner(
             overall_model=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -228,14 +228,14 @@ class X_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
 
         self.model = XLearner(
             models=underlying_model,
             # propensity_model=LogisticRegression(),
             cate_models=underlying_model,
         )
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
@@ -296,8 +296,8 @@ class DR_Learner(BaseMetaLearner):
             model_final=model_final,
             random_state=42,
         )
-        bootstap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
-        self.model.fit(Y_train, W_train, X=X_train, inference=bootstap)
+        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
         return self.model.effect(X)
