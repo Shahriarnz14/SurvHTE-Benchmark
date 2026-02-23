@@ -35,7 +35,7 @@ def get_hyperparameters(dataset_name):
         'lr': 1e-3,
         # 'batch_size': 512,
         # 'epochs': 20000,
-        'patience': 20
+        'patience': 100
     }
     
     # Dataset-specific adjustments
@@ -483,7 +483,7 @@ if __name__ == "__main__":
                        help='IPM type for domain adaptation (default of SurvITE paper: wasserstein)')
     parser.add_argument("--beta", type=float, default=0.001,
                        help='IPM regularization weight (default: 0.001)')
-    parser.add_argument("--epochs", type=int, default=1500,
+    parser.add_argument("--epochs", type=int, default=5000,
                        help='Maximum training epochs')
     parser.add_argument("--batch_size", type=int, default=256,
                        help='Training batch size')
