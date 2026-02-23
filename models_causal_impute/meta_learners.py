@@ -76,8 +76,11 @@ class BaseMetaLearner(ABC):
         - ate_pred (object): Average Treatment Effect (ATE) prediction.
         """
         cate_pred = self.predict_cate(X)
-        # ate_pred = np.mean(cate_pred)
-        ate_pred = self.model.ate_inference(X)
+        if self.num_bootstrap_sample is not None and hasattr(self.model, 'ate_inference'):
+            ate_pred = self.model.ate_inference(X)
+        else: 
+            # ate_pred = np.mean(cate_pred)
+            ate_pred = AteInferenceObject(np.mean(cate_pred))
         mse = mean_squared_error(cate_true, cate_pred)
         return mse, cate_pred, ate_pred
     
@@ -120,6 +123,18 @@ class BaseMetaLearner(ABC):
         instance.num_bootstrap_samples = model_data['num_bootstrap_samples']
         return instance
     
+class AteInferenceObject:
+    """
+    A simple wrapper for ATE inference results if no bootstrap inference is used.
+    """
+    def __init__(self, ate_value):
+        self.ate_value = ate_value
+        self.mean_point = ate_value
+        self.conf_int = (ate_value, ate_value)  # No confidence interval without bootstrap
+
+    def conf_int_mean(self):
+        return self.conf_int
+    
     
 class T_Learner(BaseMetaLearner):
     """
@@ -140,7 +155,10 @@ class T_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = TLearner(
             models=underlying_model,
@@ -184,7 +202,10 @@ class S_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = SLearner(
             overall_model=underlying_model,
@@ -228,7 +249,10 @@ class X_Learner(BaseMetaLearner):
         else:
             raise ValueError(f"Unsupported model name: {self.base_model_name}")
         
-        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
 
         self.model = XLearner(
             models=underlying_model,
@@ -296,7 +320,11 @@ class DR_Learner(BaseMetaLearner):
             model_final=model_final,
             random_state=42,
         )
-        bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        if self.num_bootstrap_samples is not None:
+            bootstrap = BootstrapInference(n_bootstrap_samples=self.num_bootstrap_samples, n_jobs=1)
+        else:
+            bootstrap = None
+        
         self.model.fit(Y_train, W_train, X=X_train, inference=bootstrap)
 
     def predict_cate(self, X):
