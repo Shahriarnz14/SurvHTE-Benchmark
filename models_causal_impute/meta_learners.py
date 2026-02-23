@@ -11,6 +11,7 @@ from sklearn.linear_model import Ridge, Lasso
 from xgboost import XGBRegressor
 from .regressor_base import RegressorBaseLearner
 from models_utils.checkpoint_utils import ensure_dir
+from models_utils.checkpoint_utils import AteInferenceObject
 import pickle
 import os
 
@@ -122,18 +123,6 @@ class BaseMetaLearner(ABC):
         instance.model = model_data['model']
         instance.num_bootstrap_samples = model_data['num_bootstrap_samples']
         return instance
-    
-class AteInferenceObject:
-    """
-    A simple wrapper for ATE inference results if no bootstrap inference is used.
-    """
-    def __init__(self, ate_value):
-        self.ate_value = ate_value
-        self.mean_point = ate_value
-        self.conf_int = (ate_value, ate_value)  # No confidence interval without bootstrap
-
-    def conf_int_mean(self):
-        return self.conf_int
     
     
 class T_Learner(BaseMetaLearner):
