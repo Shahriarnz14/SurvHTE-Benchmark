@@ -3,6 +3,7 @@ set -euo pipefail
 
 DATA_DIR="./data"
 RESULT_DIR="./results"
+MODEL_DIR="./models"
 
 NUM_REPEATS=10
 TRAIN_SIZE=0.5
@@ -14,27 +15,55 @@ DATASETS=("actgLC" "actgHC")
 # Hyperparams
 IPM_TYPE="wasserstein"
 BETA=0.001
-EPOCHS=1500
+EPOCHS=5000
 BATCH_SIZE=256
 
-for DATASET in "${DATASETS[@]}"; do
-  echo "============================================================"
-  echo "Running SurvITE | dataset=${DATASET} | train=${TRAIN_SIZE} val=${VAL_SIZE} test=${TEST_SIZE}"
-  echo "============================================================"
+DIMs=(8 16 32 64)
+LAYERs=(2)
 
-  python benchmark/run_survite.py \
-    --num_repeats "$NUM_REPEATS" \
-    --dataset_name "$DATASET" \
-    --data_dir "$DATA_DIR" \
-    --result_dir "$RESULT_DIR" \
-    --train_size "$TRAIN_SIZE" \
-    --val_size "$VAL_SIZE" \
-    --test_size "$TEST_SIZE" \
-    --epochs "$EPOCHS" \
-    --batch_size "$BATCH_SIZE" \
-    --ipm_type "$IPM_TYPE" \
-    --beta "$BETA" \
-    --verbose
+# Logging
+LOG_ROOT="./results/survite/logs"
+mkdir -p "$LOG_ROOT"
+timestamp() { date +"%Y%m%d_%H%M%S"; }
+
+for DATASET in "${DATASETS[@]}"; do
+  LOG_DIR="${LOG_ROOT}/${DATASET}"
+  mkdir -p "$LOG_DIR"
+
+  for DIM in "${DIMs[@]}"; do
+    for LAYER in "${LAYERs[@]}"; do
+      EXP_NAME="dim-${DIM}_layer-${LAYER}"
+      TS="$(timestamp)"
+      LOG_FILE="${LOG_DIR}/${EXP_NAME}_${TS}.log"
+
+      echo "============================================================"
+      echo "Running SurvITE | dataset=${DATASET} | ${EXP_NAME} | train=${TRAIN_SIZE} val=${VAL_SIZE} test=${TEST_SIZE}"
+      echo "Log: ${LOG_FILE}"
+      echo "============================================================"
+
+      python benchmark/run_survite.py \
+        --num_repeats "$NUM_REPEATS" \
+        --dataset_name "$DATASET" \
+        --data_dir "$DATA_DIR" \
+        --result_dir "$RESULT_DIR" \
+        --model_dir "$MODEL_DIR" \
+        --train_size "$TRAIN_SIZE" \
+        --val_size "$VAL_SIZE" \
+        --test_size "$TEST_SIZE" \
+        --epochs "$EPOCHS" \
+        --batch_size "$BATCH_SIZE" \
+        --ipm_type "$IPM_TYPE" \
+        --beta "$BETA" \
+        --z_dim "$DIM" \
+        --h_dim1 "$DIM" \
+        --h_dim2 "$DIM" \
+        --num_layers1 "$LAYER" \
+        --num_layers2 "$LAYER" \
+        --exp_name "$EXP_NAME" \
+        --verbose \
+        2>&1 | tee "$LOG_FILE"
+    done
+  done
 done
 
 echo "All runs completed."
