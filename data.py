@@ -325,6 +325,50 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
                 scenario_dict[f"Scenario_{survival_scenario}"] = result
             
             experiment_setups[causal_config] = scenario_dict
+    if dataset_name == 'syn_ICunobs': # additional informative censoring via unobserved confounding
+        idx_split_file_path = os.path.join(data_dir, 'synthetic', 'idx_split.csv')
+        experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
+        for causal_config in ["OBS-UConf-ICunobs"]:
+            data_path = os.path.join(data_dir, 'synthetic', f'{causal_config}.h5')
+            scenario_dict = {}
+            for survival_scenario in ['C']: # only for Survival Scenario C
+                dataset_key = f'scenario_{survival_scenario}/data'
+                with pd.HDFStore(data_path, mode='r') as store:
+                    df = store[dataset_key]
+                    metadata = store.get_storer(dataset_key).attrs.metadata
+                summary_characteristics = {
+                    # rates
+                    'censoring_rate': 1-df['event'].mean(),
+                    'treatment_rate': df['W'].mean(),
+
+                    # event times
+                    'event_time_min': df['T'].min(),
+                    'event_time_25pct': df['T'].quantile(0.25),
+                    'event_time_median': df['T'].median(),
+                    'event_time_75pct': df['T'].quantile(0.75),
+                    'event_time_max': df['T'].max(),
+                    'event_time_mean': df['T'].mean(),
+                    'event_time_std': df['T'].std(),
+
+                    # censoring times
+                    'censoring_time_min': df['C'].min(),
+                    'censoring_time_median': df['C'].median(),
+                    'censoring_time_max': df['C'].max(),
+                    'censoring_time_mean': df['C'].mean(),
+                    'censoring_time_std': df['C'].std(),
+
+                    # treatment effects
+                    'ate': (df['T1']-df['T0']).mean(),
+                    'cate_min': (df['T1']-df['T0']).min(),
+                    'cate_median': (df['T1']-df['T0']).median(),
+                    'cate_max': (df['T1']-df['T0']).max()
+                    }
+                result = {"dataset": df, 
+                        "summary": summary_characteristics, 
+                        "metadata": metadata}
+                scenario_dict[f"Scenario_{survival_scenario}"] = result
+            
+            experiment_setups[causal_config] = scenario_dict
     elif dataset_name == 'actg_syn':
         data_path = os.path.join(data_dir, 'semi-synthetic', 'actg_syn.csv')
         idx_split_file_path = os.path.join(data_dir, 'semi-synthetic', 'idx_split_actg_syn.csv')
@@ -590,7 +634,7 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
             experiment_setups[config] = scenario_dict
         pass
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f"Dataset type {dataset_name} not implemented")
     
     return experiment_setups, experiment_repeat_setups
 
@@ -668,7 +712,7 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
             f"Total {total} exceeds dataset size {len(dataset_df)}"
     
     # --- dataset-specific schema ---
-    if dataset_name == 'synthetic':
+    if dataset_name in ['synthetic', 'syn_ICunobs']:
         X_cols = [c for c in dataset_df.columns if c.startswith("X") and c[1:].isdigit()]
         W_col = 'W'
         cate_true_col=None

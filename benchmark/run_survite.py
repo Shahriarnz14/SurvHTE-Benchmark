@@ -34,7 +34,7 @@ def get_hyperparameters(dataset_name):
         'gamma': 0,  # Can be set to 1e-3 for smoothing
         'lr': 1e-3,
         # 'batch_size': 512,
-        # 'epochs': 20000,
+        'epochs': 5000,
         'patience': 100
     }
     
@@ -81,7 +81,7 @@ def main(args):
     num_repeats = args.num_repeats
     dataset_name = args.dataset_name
     dataset_type = (
-        "synthetic" if dataset_name == "synthetic"
+        "synthetic" if dataset_name in ["synthetic", "syn_ICunobs"]
         else "semi-synthetic" if dataset_name in ["mimic_syn", "actg_syn"]
         else "real"
     )
@@ -107,6 +107,16 @@ def main(args):
         hyperparams['epochs'] = args.epochs
     if args.batch_size is not None:
         hyperparams['batch_size'] = args.batch_size
+    if args.z_dim is not None:
+        hyperparams['z_dim'] = args.z_dim
+    if args.h_dim1 is not None:
+        hyperparams['h_dim1'] = args.h_dim1
+    if args.h_dim2 is not None:
+        hyperparams['h_dim2'] = args.h_dim2
+    if args.num_layers1 is not None:
+        hyperparams['num_layers1'] = args.num_layers1
+    if args.num_layers2 is not None:
+        hyperparams['num_layers2'] = args.num_layers2
     
     print(f"Using hyperparameters for {dataset_name}:")
     for key, value in hyperparams.items():
@@ -125,6 +135,8 @@ def main(args):
         f'models_causal_survival/survite/'
     )
     output_pickle_path += f"{dataset_name}_survite_repeats_{args.num_repeats}_train_{train_size_str}.pkl"
+    if args.exp_name != "":
+        output_pickle_path = output_pickle_path.replace(".pkl", f"_{args.exp_name}.pkl")
     os.makedirs(os.path.dirname(output_pickle_path), exist_ok=True)
     print("Output results path:", output_pickle_path)
     
@@ -166,7 +178,7 @@ def main(args):
             
             # Run experiments for each repeat
             for rand_idx in range(num_repeats):
-                if dataset_name in ['synthetic', 'actgLC', 'actgHC', 'twin30', 'twin180']:
+                if dataset_name in ['synthetic', 'syn_ICunobs', 'actgLC', 'actgHC', 'twin30', 'twin180']:
                     X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
                     X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
                     X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
@@ -203,7 +215,7 @@ def main(args):
                     os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
 
                 # TODO
-                args.verbose = True
+                # args.verbose = True
                 
                 # Initialize model
                 learner = SurvITEModel(
@@ -464,7 +476,6 @@ if __name__ == "__main__":
     # Data arguments
     parser.add_argument("--num_repeats", type=int, default=10)
     parser.add_argument("--dataset_name", type=str, default='synthetic',
-                        choices=['synthetic', 'actg_syn', 'mimic_syn', 'twin30', 'twin180', 'actgLC', 'actgHC'],
                         help='Dataset name for the experiment')
     parser.add_argument("--data_dir", type=str, default='./data')
     parser.add_argument("--result_dir", type=str, default='./results')
@@ -478,6 +489,11 @@ if __name__ == "__main__":
     parser.add_argument("--load_models", action='store_true', help='Load pre-trained models')
     
     # SurvITE-specific hyperparameters (optional overrides)
+    parser.add_argument("--z_dim", type=int, default=None)
+    parser.add_argument("--h_dim1", type=int, default=None)
+    parser.add_argument("--h_dim2", type=int, default=None)
+    parser.add_argument("--num_layers1", type=int, default=None)
+    parser.add_argument("--num_layers2", type=int, default=None)
     parser.add_argument("--ipm_type", type=str, default="wasserstein", 
                        choices=['wasserstein', 'mmd', 'no_ipm'],
                        help='IPM type for domain adaptation (default of SurvITE paper: wasserstein)')
@@ -489,6 +505,8 @@ if __name__ == "__main__":
                        help='Training batch size')
     parser.add_argument("--verbose", action='store_true',
                        help='Print training progress')
+
+    parser.add_argument("--exp_name", type=str, default="", help="Experiment name")
     
     args = parser.parse_args()
     main(args)
