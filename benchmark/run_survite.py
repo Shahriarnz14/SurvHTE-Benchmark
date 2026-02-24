@@ -35,7 +35,7 @@ def get_hyperparameters(dataset_name):
         'lr': 1e-3,
         # 'batch_size': 512,
         'epochs': 5000,
-        'patience': 100
+        'patience': 10
     }
     
     # Dataset-specific adjustments
