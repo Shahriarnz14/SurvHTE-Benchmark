@@ -54,18 +54,19 @@ def get_hyperparameters(dataset_name):
     elif dataset_name == 'mimic_syn':
         params = default_params.copy()
         # params['horizon'] = 40
+        params['z_dim'] = 64
         params['h_dim1'] = 64
         params['h_dim2'] = 64
         # params['batch_size'] = 256
         
     elif dataset_name in ['twin30', 'twin180']:
         params = default_params.copy()
-        # params['horizon'] = 365
-        # params['z_dim'] = 150  # Larger representation for complex data
-        # params['h_dim1'] = 150
-        # params['h_dim2'] = 150
-        # params['num_layers1'] = 4  # Deeper networks for complex patterns
-        # params['num_layers2'] = 3
+        params['horizon'] = eval(dataset_name.split('twin')[1])  # 30 or 180
+        params['z_dim'] = 64 
+        params['h_dim1'] = 64
+        params['h_dim2'] = 64
+        params['num_layers1'] = 2
+        params['num_layers2'] = 2
         
     else:  # actg real data
         params = default_params.copy()
@@ -178,7 +179,7 @@ def main(args):
             
             # Run experiments for each repeat
             for rand_idx in range(num_repeats):
-                if dataset_name in ['synthetic', 'syn_ICunobs', 'actgLC', 'actgHC', 'twin30', 'twin180']:
+                if dataset_name in ['synthetic', 'syn_ICunobs', 'actgLC', 'actgHC', 'twin']:
                     X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
                     X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
                     X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
