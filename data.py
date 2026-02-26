@@ -842,3 +842,26 @@ def prepare_data_split(dataset_df, experiment_repeat_setups,
         }
 
     return split_results
+
+
+def apply_effective_censoring(Y, horizon):
+    """
+    Y: array of shape (n_samples, 2) with columns [observed_time, event]
+    horizon: numeric scalar, maximum observed time to use (i.e. horizon for RMST target)
+    
+    According to https://github.com/grf-labs/grf/blob/master/r-package/grf/R/causal_survival_forest.R#L201:
+        D[T >= horizon] <- 1
+        T[T >= horizon] <- horizon
+
+    Returns:
+        Y_eff: array of shape (n_samples, 2) with effective observed time and event indicator after applying censoring at horizon
+    """
+    observed_time = Y[:, 0]
+    event = Y[:, 1]
+
+    # Apply effective censoring
+    event_eff = np.where(observed_time >= horizon, 1, event)
+    observed_time_eff = np.minimum(observed_time, horizon)
+
+    Y_eff = np.column_stack((observed_time_eff, event_eff))
+    return Y_eff

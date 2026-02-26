@@ -8,7 +8,7 @@ import pickle
 import time
 from tqdm import tqdm, trange
 from models_causal_impute.survival_eval_impute import SurvivalEvalImputer
-from data import load_data, prepare_data_split
+from data import load_data, prepare_data_split, apply_effective_censoring
 
 
 def main(args):
@@ -32,6 +32,8 @@ def main(args):
     experiment_setups, experiment_repeat_setups = load_data(dataset_name=dataset_name, data_dir=data_dir)
 
     output_pickle_path = os.path.join(data_dir, dataset_type, f'imputed_times_lookup_{dataset_name}.pkl')
+    if args.note != "":
+        output_pickle_path = output_pickle_path.replace(".pkl", f"_{args.note}.pkl")       
     print(f'output file: {output_pickle_path}')
     imputation_methods_list = ['Pseudo_obs', 'Margin', 'IPCW-T']
 
@@ -62,6 +64,7 @@ def main(args):
 
             for scenario_key in setup_dict:
                 dataset_df = setup_dict[scenario_key]["dataset"]
+                dataset_summary = setup_dict[scenario_key]["summary"]
                 split_dict = prepare_data_split(
                     dataset_df, experiment_repeat_setups, 
                     num_repeats=num_repeats, 
@@ -89,6 +92,19 @@ def main(args):
                     X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
                     val_size_ = Y_val.shape[0]
                     Y_val_test = np.vstack((Y_val, Y_test))
+                    event_time_50pct = dataset_summary['event_time_median']
+
+                    # apply effective non-censoring
+                    if args.target == "rmst":
+                        if args.horizon == None or args.horizon == 1.0:
+                            pass # max observe time, no need to modify
+                        if args.horizon == 0.5:
+                            Y_train = apply_effective_censoring(Y_train, horizon=event_time_50pct)
+                            Y_val_test = apply_effective_censoring(Y_val_test, horizon=event_time_50pct)
+                        else:
+                            raise NotImplementedError(f"Only median obs time is supported, got horizon {args.horizon}")
+                    else:
+                        raise NotImplementedError(f"Effective non-censoring for target {args.target} with horizon {args.horizon} is not implemented yet.")
 
                     # Check if imputed_times[imputation_method][config_name][scenario_key][train_size_str] has the rand_idx
                     if rand_idx not in imputed_times[imputation_method][config_name][scenario_key][train_size_str]:
@@ -137,5 +153,6 @@ if __name__ == "__main__":
     parser.add_argument("--test_size", type=float, default=2500)
     parser.add_argument("--target", type=str, choices=["rmst", "survival_prob"], default='rmst')
     parser.add_argument("--horizon", type=float, default=None)
+    parser.add_argument("--note", type=str, default="")
     args = parser.parse_args()
     main(args)
