@@ -325,7 +325,7 @@ def load_data(dataset_name='synthetic', data_dir='./data', target='rmst', horizo
                 scenario_dict[f"Scenario_{survival_scenario}"] = result
             
             experiment_setups[causal_config] = scenario_dict
-    if dataset_name == 'syn_ICunobs': # additional informative censoring via unobserved confounding
+    elif dataset_name == 'syn_ICunobs': # additional informative censoring via unobserved confounding
         idx_split_file_path = os.path.join(data_dir, 'synthetic', 'idx_split.csv')
         experiment_repeat_setups = pd.read_csv(idx_split_file_path).set_index("idx")
         for causal_config in ["OBS-UConf-ICunobs"]:
