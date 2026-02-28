@@ -21,6 +21,13 @@ def main(args):
         else "semi-synthetic" if dataset_name in ["mimic_syn", "mimic_syn_2", "actg_syn"]
         else "real"
     )
+
+    args.include_med_rmst = True
+    if args.horizon is None or args.horizon == 1.0:
+        args.horizon = 1.0
+    elif args.horizon != 0.5:
+        raise NotImplementedError(f"Currently only supports horizon of max obs time or median event time for RMST, got {args.horizon}")
+    
     train_size = args.train_size
     val_size = args.val_size
     test_size = args.test_size
@@ -30,9 +37,14 @@ def main(args):
 
     experiment_setups, experiment_repeat_setups = load_data(dataset_name=dataset_name, data_dir=data_dir)
 
-    imputed_path = os.path.join(data_dir, dataset_type, f'imputed_times_lookup_{dataset_name}.pkl')
+    if args.impute_precomp_file == "":
+        imputed_path = os.path.join(data_dir, dataset_type, f'imputed_times_lookup_{dataset_name}.pkl')
+    else:
+        imputed_path = os.path.join(data_dir, dataset_type, args.impute_precomp_file)
     output_pickle_path = os.path.join(result_dir, dataset_type, f'models_causal_impute/meta_learner/{args.meta_learner}/')
     output_pickle_path += f"{dataset_name}_{args.meta_learner}_{args.impute_method}_repeats_{args.num_repeats}_train_{train_size_str}.pkl"
+    if args.exp_name != "":
+        output_pickle_path = output_pickle_path.replace(".pkl", f"_{args.exp_name}.pkl")
     os.makedirs(os.path.dirname(output_pickle_path), exist_ok=True)
     print("Output results path:", output_pickle_path)
 
@@ -44,6 +56,10 @@ def main(args):
 
     # base_regressors = ['ridge', 'lasso', 'rf', 'gbr', 'xgb']
     base_regressors = ['lasso', 'rf', 'xgb']
+
+    if args.no_bootstrap:
+        args.num_bootstrap_samples = None
+        print("Running experiments with bootstrap inference disabled.")
 
     if os.path.exists(output_pickle_path):
         print("Loading results from existing file.")
@@ -65,7 +81,8 @@ def main(args):
                 dataset_name=dataset_name,
                 train_size=train_size,
                 val_size=val_size,
-                test_size=test_size
+                test_size=test_size,
+                include_rmst_med_horizon=args.include_med_rmst
             )
             if scenario_key not in results_dict[config_name]:
                 results_dict[config_name][scenario_key] = {}
@@ -75,9 +92,24 @@ def main(args):
                     results_dict[config_name][scenario_key][base_model] = {}
 
                 for rand_idx in range(num_repeats):
-                    X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
-                    X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
-                    X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                    # X_train, W_train, Y_train, cate_true_train = split_dict[rand_idx]['train']
+                    # X_val, W_val, Y_val, cate_true_val = split_dict[rand_idx]['val']
+                    # X_test, W_test, Y_test, cate_true_test = split_dict[rand_idx]['test']
+                    train_tuple = split_dict[rand_idx]['train']
+                    val_tuple = split_dict[rand_idx]['val']
+                    test_tuple = split_dict[rand_idx]['test']
+                    def unpack(tup):
+                        if args.include_med_rmst:
+                            X, W, Y, cate, cate_med = tup
+                        else:
+                            X, W, Y, cate = tup
+                            cate_med = None
+                        return X, W, Y, cate, cate_med
+
+                    X_train, W_train, Y_train, cate_true_train, cate_true_med_horizon_train = unpack(train_tuple)
+                    X_val,   W_val,   Y_val,   cate_true_val,   cate_true_med_horizon_val   = unpack(val_tuple)
+                    X_test,  W_test,  Y_test,  cate_true_test,  cate_true_med_horizon_test  = unpack(test_tuple)
+
                     val_size_ = Y_val.shape[0]
                     Y_val_test = np.vstack((Y_val, Y_test))
                     
@@ -150,8 +182,14 @@ def main(args):
                             print(f'Took {(time.time() - t_):.0f} seconds to save the model')
 
                         start_time = time.time()
-                        mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
-                        mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
+                        if args.horizon == 1.0:
+                            mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_val, W_val)
+                            mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_test, W_test)
+                        elif args.horizon == 0.5:
+                            mse_val, cate_val_pred, ate_val_pred = learner.evaluate(X_val, cate_true_med_horizon_val, W_val)
+                            mse_test, cate_test_pred, ate_test_pred = learner.evaluate(X_test, cate_true_med_horizon_test, W_test)
+                        else:
+                            raise NotImplementedError(f"Currently only supports horizon of max obs time or median event time for RMST, got {args.horizon}")
                         end_time = time.time()
                         inference_time = end_time - start_time
 
@@ -262,16 +300,21 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_name", type=str, default='synthetic')
     parser.add_argument("--data_dir", type=str, default='./data')
     parser.add_argument("--result_dir", type=str, default='./results')
+    parser.add_argument("--impute_precomp_file", type=str, default='')
     parser.add_argument("--train_size", type=float, default=5000)
     parser.add_argument("--val_size", type=float, default=2500)
     parser.add_argument("--test_size", type=float, default=2500)
+    parser.add_argument("--horizon", type=float, default=None, help="Max horizon for RMST")
     parser.add_argument("--impute_method", type=str, default="Margin", 
                         choices=["Pseudo_obs", "Margin", "IPCW-T"])
     parser.add_argument("--meta_learner", type=str, default="t_learner", 
                         choices=["t_learner", "s_learner", "x_learner", "dr_learner"])
-    parser.add_argument("--num_bootstrap_samples", type=int, default=100, 
-                        help="Number of bootstrap samples for ATE inference. Set to None to disable bootstrap inference (Faste inference/Learning).")
+    parser.add_argument("--num_bootstrap_samples", type=int, default=100,
+                        help="Number of bootstrap samples for ATE inference. Will be ignored if --no_bootstrap is set.")
+    parser.add_argument("--no_bootstrap", action="store_true",
+                        help="Disable bootstrap inference (Faste inference/Learning).")
     parser.add_argument("--save_model", action="store_true", 
                         help="If set, save the trained model. Default is False.")
+    parser.add_argument("--exp_name", type=str, default="", help="Experiment name")
     args = parser.parse_args()
     main(args)
