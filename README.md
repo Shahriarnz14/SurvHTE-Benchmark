@@ -1,6 +1,6 @@
 # SurvHTE-Bench: A Benchmark for Heterogeneous Treatment Effect Estimation in Survival Analysis
 
-This repository provides code for SurvHTE-Bench, a benchmark for estimating heterogeneous treatment effects (HTEs) from censored survival data.
+This repository provides code for SurvHTE-Bench [[Paper](https://arxiv.org/abs/2603.05483)], a benchmark for estimating heterogeneous treatment effects (HTEs) from censored survival data.
 It includes implementations of imputation-based meta-learners, double machine learning (DML), survival-adapted meta-learners, and direct survival causal models (e.g., Causal Survival Forest, SurvITE).
 
 We support experiments on synthetic, semi-synthetic, and real-world datasets.
