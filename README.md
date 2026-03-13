@@ -17,6 +17,7 @@ For reproducibility, each dataset has an idx_split.csv file to ensure consistent
 ├── models_causal_survival_meta/ # Survival meta-learners
 ├── models_utils/                # Utilities (checkpointing, shared helpers)
 ├── data/                        # Synthetic, semi-synthetic, and real datasets; generation + preprocessing
+├── data_utils/                  # HuggingFace data loaing utilities
 ├── survhte_base/                # Base interfaces for data generation and learner families
 ├── results/                     # Stored results, organized by dataset and method family
 ├── scripts/                     # Shell scripts to reproduce experiments
@@ -116,6 +117,68 @@ Located in `data/real/`:
 Each dataset folder includes an `idx_split_*.csv` for reproducible splits.  
 
 
+## Dataset on HuggingFace
+
+All shareable datasets (synthetic, semi-synthetic ACTG, and real-world) are available on HuggingFace at:
+
+**[https://huggingface.co/datasets/snoroozi/SurvHTE-Bench](https://huggingface.co/datasets/snoroozi/SurvHTE-Bench)**
+
+The HF repository hosts pre-computed train/val/test splits for 10 repeated experiments, making it easy to evaluate new methods without re-running the data pipeline. Note: MIMIC-related datasets are not included due to data sharing restrictions.
+
+### Loading via `data_utils/hf_load.py`
+
+We provide [`data_utils/hf_load.py`](https://github.com/Shahriarnz14/SurvHTE-Bench/blob/main/data_utils/hf_load.py) with two loading interfaces.
+
+**Install dependencies:**
+```bash
+pip install datasets pandas numpy
+```
+
+#### Interface 1 — `load_data`: Reconstruct full experiment structures
+
+Identical output to the local `load_data()` used throughout the benchmark scripts:
+
+```python
+from data_utils.hf_load import load_data
+
+experiment_setups, experiment_repeat_setups = load_data(dataset_name=dataset_name, repo_id="snoroozi/SurvHTE-Bench")
+```
+
+`experiment_setups` is a nested dict keyed by `setup_key` → `scenario`:
+```python
+experiment_setups[setup_key][scenario] = {
+    "dataset":  pd.DataFrame,  # covariates + outcome columns
+    "summary":  dict,          # summary statistics
+    "metadata": dict,          # DGP metadata (synthetic only)
+}
+```
+
+Supported `dataset_name` values: `"synthetic"`, `"actg_syn"`, `"twin"`, `"actgHC"`, `"actgLC"`.
+
+#### Interface 2 — `load_splits`: Pre-split arrays for the experiment loop
+
+Returns numpy arrays already split into train/val/test for each configuration, scenario, and repeat — ready to pass directly into model training:
+
+```python
+from data_utils.hf_load import load_splits
+
+split_dict = load_splits(dataset_name=dataset_name, repo_id="snoroozi/SurvHTE-Bench")
+```
+
+The returned structure mirrors the benchmark's experiment loop:
+```
+split_dict[config_name][scenario_key][rand_idx]["train" | "val" | "test"]
+    = (X, W, Y, cate_true)
+```
+
+**Example:**
+```python
+X_train, W_train, Y_train, cate_true_train = split_dict[config_name][scenario_key][rand_idx]["train"]
+X_val,   W_val,   Y_val,   cate_true_val   = split_dict[config_name][scenario_key][rand_idx]["val"]
+X_test,  W_test,  Y_test,  cate_true_test  = split_dict[config_name][scenario_key][rand_idx]["test"]
+```
+
+
 ## Installation
 
 ### Prerequisites
@@ -204,3 +267,17 @@ Examples:
 * This code builds on several open-source packages including EconML, scikit-survival, and PyCox
 * The ACTG 175 clinical trial data is provided by the AIDS Clinical Trials Group (Data available at [AIDS Clinical Trials Group Study 175](https://archive.ics.uci.edu/dataset/890/aids+clinical+trials+group+study+175))
 * The Twin mortality data is derived from the Twin birth registry of NBER (Subset obtained from [GANITE](https://github.com/YorkNishi999/ganite_pytorch/blob/main/data/Twin_data.csv.gz))
+
+
+## Citation
+
+If you use SurvHTE-Bench in your research, please cite:
+
+```bibtex
+@inproceedings{noroozizadeh2026survhte,
+  title={SurvHTE-Bench: A Benchmark for Heterogeneous Treatment Effect Estimation in Survival Analysis},
+  author={Noroozizadeh, Shahriar and Shen, Xiaobin and Weiss, Jeremy and Chen, George H.},
+  booktitle={International Conference on Learning Representations (ICLR)},
+  year={2026}
+}
+```
