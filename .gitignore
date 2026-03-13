@@ -29,3 +29,6 @@
 !data/synthetic/idx_split.csv
 
 scripts/**/*med*.sh
+
+benchmark/testing_load_data.ipynb
+benchmark/SurvHTE-Bench.py
